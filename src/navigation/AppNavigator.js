@@ -1,52 +1,47 @@
-// ─── KARMA APP — NAVIGATION ───────────────────────────────────────────
-// Bottom tab navigator. 5 tabs: Home, Habits, Add, Stats, Settings.
+// ─── KARMA APP — NAVIGATION (UPDATED PHASE 2) ────────────────────────
+// Stack navigator wraps tab navigator.
+// AddHabit and HabitDetail are stack screens (full screen).
 
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import {
+  View, Text, TouchableOpacity, StyleSheet, Platform
+} from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Colors } from '../constants/colors';
-import HomeScreen from '../screens/HomeScreen';
+import { createStackNavigator }     from '@react-navigation/stack';
+import { Colors }             from '../constants/colors';
+import HomeScreen             from '../screens/HomeScreen';
+import AddHabitScreen         from '../screens/AddHabitScreen';
+import HabitDetailScreen      from '../screens/HabitDetailScreen';
 import {
   HabitsScreen,
   StatsScreen,
   SettingsScreen,
 } from '../screens/PlaceholderScreens';
 
-const Tab = createBottomTabNavigator();
+const Tab   = createBottomTabNavigator();
+const Stack = createStackNavigator();
 
-// Custom tab bar for full design control
-const KarmaTabBar = ({ state, descriptors, navigation }) => {
+// ── Custom Tab Bar ────────────────────────────────────────────────────
+
+const KarmaTabBar = ({ state, navigation }) => {
   const tabs = [
-    { key: 'Home',     icon: '🏠', label: 'Home' },
-    { key: 'Habits',   icon: '✅', label: 'Habits' },
-    { key: 'Add',      icon: '✚',  label: 'Add',  isCenter: true },
-    { key: 'Stats',    icon: '📊', label: 'Stats' },
-    { key: 'Settings', icon: '⚙️', label: 'More' },
+    { name: 'Home',     icon: '🏠', label: 'Home' },
+    { name: 'Habits',   icon: '✅', label: 'Habits' },
+    { name: 'AddTab',   icon: '✚',  label: 'Add',  isCenter: true },
+    { name: 'Stats',    icon: '📊', label: 'Stats' },
+    { name: 'Settings', icon: '⚙️', label: 'More' },
   ];
 
   return (
     <View style={styles.tabBar}>
-      {state.routes.map((route, index) => {
-        const tab       = tabs[index];
-        const isFocused = state.index === index;
-
-        const onPress = () => {
-          const event = navigation.emit({
-            type:   'tabPress',
-            target: route.key,
-            canPreventDefault: true,
-          });
-          if (!isFocused && !event.defaultPrevented) {
-            navigation.navigate(route.name);
-          }
-        };
-
+      {tabs.map((tab, index) => {
+        // Map AddTab to the stack navigation
         if (tab.isCenter) {
           return (
             <TouchableOpacity
-              key={route.key}
-              onPress={onPress}
+              key="add"
               style={styles.centerTab}
+              onPress={() => navigation.navigate('AddHabit')}
               activeOpacity={0.8}
             >
               <View style={styles.centerButton}>
@@ -56,11 +51,19 @@ const KarmaTabBar = ({ state, descriptors, navigation }) => {
           );
         }
 
+        const isFocused = state.routes[state.index]?.name === tab.name ||
+                          (tab.name === 'Home' && state.index === 0);
+        const routeIndex = state.routes.findIndex(r => r.name === tab.name);
+
         return (
           <TouchableOpacity
-            key={route.key}
-            onPress={onPress}
+            key={tab.name}
             style={styles.tab}
+            onPress={() => {
+              if (routeIndex >= 0) {
+                navigation.navigate(tab.name);
+              }
+            }}
             activeOpacity={0.7}
           >
             <Text style={[styles.tabIcon, isFocused && styles.tabIconActive]}>
@@ -76,35 +79,57 @@ const KarmaTabBar = ({ state, descriptors, navigation }) => {
   );
 };
 
-// Placeholder Add screen
-const AddScreen = () => (
-  <View style={{ flex: 1, backgroundColor: Colors.background }} />
-);
+// ── Tab Navigator ─────────────────────────────────────────────────────
 
-const AppNavigator = () => (
+const TabNavigator = () => (
   <Tab.Navigator
     tabBar={(props) => <KarmaTabBar {...props} />}
-    screenOptions={{
-      headerShown: false,
-    }}
+    screenOptions={{ headerShown: false }}
   >
     <Tab.Screen name="Home"     component={HomeScreen} />
     <Tab.Screen name="Habits"   component={HabitsScreen} />
-    <Tab.Screen name="Add"      component={AddScreen} />
+    <Tab.Screen name="AddTab"   component={HomeScreen} />
     <Tab.Screen name="Stats"    component={StatsScreen} />
     <Tab.Screen name="Settings" component={SettingsScreen} />
   </Tab.Navigator>
 );
 
+// ── Root Stack Navigator ──────────────────────────────────────────────
+
+const AppNavigator = () => (
+  <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Screen name="Main"        component={TabNavigator} />
+    <Stack.Screen
+      name="AddHabit"
+      component={AddHabitScreen}
+      options={{
+        presentation:      'modal',
+        gestureEnabled:    true,
+        cardStyleInterpolator: ({ current, layouts }) => ({
+          cardStyle: {
+            transform: [{
+              translateY: current.progress.interpolate({
+                inputRange:  [0, 1],
+                outputRange: [layouts.screen.height, 0],
+              }),
+            }],
+          },
+        }),
+      }}
+    />
+    <Stack.Screen name="HabitDetail" component={HabitDetailScreen} />
+  </Stack.Navigator>
+);
+
 const styles = StyleSheet.create({
   tabBar: {
-    flexDirection:    'row',
-    backgroundColor:  'rgba(5,10,24,0.97)',
-    borderTopWidth:    1,
-    borderTopColor:    Colors.borderBlue,
-    paddingBottom:     Platform.OS === 'ios' ? 20 : 8,
-    paddingTop:        10,
-    paddingHorizontal: 8,
+    flexDirection:     'row',
+    backgroundColor:   'rgba(5,10,24,0.97)',
+    borderTopWidth:     1,
+    borderTopColor:     Colors.borderBlue,
+    paddingBottom:      Platform.OS === 'ios' ? 20 : 8,
+    paddingTop:         10,
+    paddingHorizontal:  8,
     alignItems:        'center',
   },
   tab: {
@@ -113,21 +138,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap:             2,
   },
-  tabIcon: {
-    fontSize: 18,
-    opacity:  0.4,
-  },
-  tabIconActive: {
-    opacity: 1,
-  },
-  tabLabel: {
-    fontSize:     8,
-    color:        Colors.textDim,
-    letterSpacing: 0.5,
-  },
-  tabLabelActive: {
-    color: Colors.blue,
-  },
+  tabIcon:       { fontSize: 18, opacity: 0.4 },
+  tabIconActive: { opacity: 1 },
+  tabLabel:      { fontSize: 8, color: Colors.textDim, letterSpacing: 0.5 },
+  tabLabelActive:{ color: Colors.blue },
   centerTab: {
     flex:           1,
     alignItems:     'center',
@@ -145,7 +159,7 @@ const styles = StyleSheet.create({
     shadowOffset:    { width: 0, height: 4 },
     shadowOpacity:   0.5,
     shadowRadius:    12,
-    elevation:       8,
+    elevation:        8,
   },
   centerIcon: {
     fontSize:   22,

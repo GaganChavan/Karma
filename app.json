@@ -17,6 +17,7 @@
       "bundleIdentifier": "com.gaganchavan.karma"
     },
     "android": {
+      "softwareKeyboardLayoutMode": "pan",
       "newArchEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

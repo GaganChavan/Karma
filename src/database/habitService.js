@@ -59,7 +59,6 @@ export const getHabitById = async (id) => {
 export const createHabit = async (habit) => {
   validateHabitInput(habit);
 
-  // Check for duplicate name
   try {
     const db = await getDatabase();
     const existing = await db.getFirstAsync(
@@ -97,13 +96,12 @@ export const createHabit = async (habit) => {
     );
 
     console.log(`✅ Habit created: "${habit.name}" (id: ${result.lastInsertRowId})`);
+    // No XP awarded for creating a habit — only for completing it
     return result.lastInsertRowId;
   } catch (error) {
-    // Re-throw validation / business errors as-is
     if (error.message.includes("can't be empty") ||
         error.message.includes('already exists') ||
-        error.message.includes('must be') ||
-        error.message.includes('must be "build"')) {
+        error.message.includes('must be')) {
       throw error;
     }
     console.error('createHabit:', error);
@@ -188,7 +186,7 @@ export const reorderHabits = async (orderedIds) => {
 
 export const getTodayCheckins = async () => {
   try {
-    const db   = await getDatabase();
+    const db    = await getDatabase();
     const today = getTodayDate();
     return await db.getAllAsync(
       'SELECT * FROM checkins WHERE date = ?',
@@ -238,9 +236,51 @@ export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
   }
 
   try {
-    const db   = await getDatabase();
+    const db    = await getDatabase();
     const today = getTodayDate();
 
+    // ── XP Logic FIRST — before insert overwrites the old status ──────
+    // Read current status for today BEFORE we change it
+    const existing = await db.getFirstAsync(
+      'SELECT status FROM checkins WHERE habit_id = ? AND date = ?',
+      [habitId, today]
+    );
+
+    const wasComplete = existing?.status === 'done' || existing?.status === 'resisted';
+    const nowComplete = status === 'done' || status === 'resisted';
+
+    // Award XP only when transitioning TO complete for first time
+    const xpToAward  = nowComplete && !wasComplete
+      ? (status === 'done' ? 10 : 8)
+      : 0;
+
+    // Deduct XP when undoing a completion
+    const xpToDeduct = !nowComplete && wasComplete
+      ? (existing?.status === 'done' ? 10 : 8)
+      : 0;
+
+    if (xpToAward > 0 || xpToDeduct > 0) {
+      const currentSetting = await db.getFirstAsync(
+        "SELECT value FROM settings WHERE key = 'total_xp'"
+      );
+      const currentXP = parseInt(currentSetting?.value || '0');
+      const newXP     = Math.max(0, currentXP + xpToAward - xpToDeduct);
+
+      await db.runAsync(
+        "UPDATE settings SET value = ? WHERE key = 'total_xp'",
+        [String(newXP)]
+      );
+
+      if (xpToAward > 0) {
+        await db.runAsync(
+          'INSERT INTO xp_log (habit_id, xp, reason, date) VALUES (?, ?, ?, ?)',
+          [habitId, xpToAward, `Habit ${status}`, today]
+        );
+      }
+      console.log(`⚡ XP: +${xpToAward} -${xpToDeduct} → total ${newXP}`);
+    }
+
+    // ── Now do the actual check-in insert / update ─────────────────────
     await db.runAsync(
       `INSERT INTO checkins (habit_id, date, status, note, slip_count)
        VALUES (?, ?, ?, ?, ?)
@@ -250,25 +290,6 @@ export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
          slip_count = excluded.slip_count`,
       [habitId, today, status, note, slipCount]
     );
-
-    // Award XP
-    const xpMap = { done: 10, resisted: 8, missed: 0, slip: 0, skipped: 0 };
-    const xp = xpMap[status] || 0;
-    if (xp > 0) {
-      await db.runAsync(
-        'INSERT INTO xp_log (habit_id, xp, reason, date) VALUES (?, ?, ?, ?)',
-        [habitId, xp, `Habit ${status}`, today]
-      );
-      // Update total XP in settings
-      const current = await db.getFirstAsync(
-        "SELECT value FROM settings WHERE key = 'total_xp'"
-      );
-      const newXp = (parseInt(current?.value || '0') + xp).toString();
-      await db.runAsync(
-        "UPDATE settings SET value = ? WHERE key = 'total_xp'",
-        [newXp]
-      );
-    }
 
     console.log(`✅ Check-in: habit ${habitId} → ${status}`);
   } catch (error) {
@@ -285,9 +306,8 @@ export const editPastCheckin = async (habitId, date, status, note = null) => {
   if (!habitId) throw new Error('Habit ID is required');
   if (!date)    throw new Error('Date is required to edit past check-in');
 
-  // Only allow editing up to 3 days back
-  const target  = new Date(date);
-  const today   = new Date();
+  const target   = new Date(date);
+  const today    = new Date();
   const diffDays = Math.floor((today - target) / 86400000);
   if (diffDays > 3) {
     throw new Error("Can't edit check-ins older than 3 days, Neel — keeping data honest");
@@ -317,8 +337,8 @@ export const editPastCheckin = async (habitId, date, status, note = null) => {
 export const getStreak = async (habitId) => {
   if (!habitId) throw new Error('Habit ID required for streak');
   try {
-    const db      = await getDatabase();
-    const habit   = await db.getFirstAsync(
+    const db    = await getDatabase();
+    const habit = await db.getFirstAsync(
       'SELECT type FROM habits WHERE id = ?', [habitId]
     );
     if (!habit) return { current: 0, longest: 0 };
@@ -336,7 +356,6 @@ export const getStreak = async (habitId) => {
 
     if (!rows || rows.length === 0) return { current: 0, longest: 0 };
 
-    const dates  = rows.map(r => r.date);
     const today  = getTodayDate();
     let current  = 0;
     let longest  = 0;
@@ -344,8 +363,8 @@ export const getStreak = async (habitId) => {
     let checking = today;
     let countingCurrent = true;
 
-    for (const date of dates) {
-      if (date === checking) {
+    for (const row of rows) {
+      if (row.date === checking) {
         temp++;
         if (countingCurrent) current++;
         const d = new Date(checking);
@@ -355,7 +374,7 @@ export const getStreak = async (habitId) => {
         countingCurrent = false;
         if (temp > longest) longest = temp;
         temp = 1;
-        const d = new Date(date);
+        const d = new Date(row.date);
         d.setDate(d.getDate() - 1);
         checking = d.toISOString().split('T')[0];
       }
@@ -365,14 +384,14 @@ export const getStreak = async (habitId) => {
     return { current, longest };
   } catch (error) {
     console.error('getStreak:', error);
-    return { current: 0, longest: 0 }; // Non-fatal — return zeros
+    return { current: 0, longest: 0 };
   }
 };
 
 export const getWeeklyCompletionRate = async (habitId) => {
   if (!habitId) return 0;
   try {
-    const db   = await getDatabase();
+    const db    = await getDatabase();
     const today = new Date();
     const days  = [];
     for (let i = 6; i >= 0; i--) {
@@ -402,7 +421,7 @@ export const getWeeklyCompletionRate = async (habitId) => {
 export const getPunishmentLevel = async (habitId) => {
   if (!habitId) return 0;
   try {
-    const db  = await getDatabase();
+    const db = await getDatabase();
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const fromDate = sevenDaysAgo.toISOString().split('T')[0];
@@ -414,11 +433,11 @@ export const getPunishmentLevel = async (habitId) => {
     );
 
     const count = slips?.count || 0;
-    if (count === 0)      return 0; // Clean
-    if (count <= 2)       return 1; // Mild
-    if (count <= 4)       return 2; // Moderate
-    if (count <= 7)       return 3; // Harsh
-    return 4;                        // Maximum
+    if (count === 0) return 0;
+    if (count <= 2)  return 1;
+    if (count <= 4)  return 2;
+    if (count <= 7)  return 3;
+    return 4;
   } catch (error) {
     return 0;
   }
@@ -436,13 +455,13 @@ export const checkAndSaveMilestone = async (habitId, currentStreak) => {
       'SELECT id FROM milestones WHERE habit_id = ? AND milestone_days = ?',
       [habitId, currentStreak]
     );
-    if (existing) return null; // Already recorded
+    if (existing) return null;
 
     await db.runAsync(
       'INSERT INTO milestones (habit_id, milestone_days) VALUES (?, ?)',
       [habitId, currentStreak]
     );
-    console.log(`🏆 Milestone reached: ${currentStreak} days for habit ${habitId}`);
+    console.log(`🏆 Milestone: ${currentStreak} days for habit ${habitId}`);
     return currentStreak;
   } catch (error) {
     console.warn('checkAndSaveMilestone:', error.message);
@@ -505,7 +524,7 @@ export const getTotalXP = async () => {
 
 export const getOverallStats = async () => {
   try {
-    const db = await getDatabase();
+    const db    = await getDatabase();
     const today = getTodayDate();
 
     const totalHabits = await db.getFirstAsync(
@@ -531,14 +550,14 @@ export const getOverallStats = async () => {
 
 export const exportAllData = async () => {
   try {
-    const db       = await getDatabase();
-    const habits   = await db.getAllAsync('SELECT * FROM habits');
-    const checkins = await db.getAllAsync('SELECT * FROM checkins');
-    const settings = await db.getAllAsync('SELECT * FROM settings');
+    const db         = await getDatabase();
+    const habits     = await db.getAllAsync('SELECT * FROM habits');
+    const checkins   = await db.getAllAsync('SELECT * FROM checkins');
+    const settings   = await db.getAllAsync('SELECT * FROM settings');
     const milestones = await db.getAllAsync('SELECT * FROM milestones');
 
     return {
-      version:    1,
+      version:     1,
       exported_at: new Date().toISOString(),
       habits,
       checkins,
