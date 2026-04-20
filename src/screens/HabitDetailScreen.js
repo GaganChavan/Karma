@@ -1,6 +1,4 @@
-// ─── KARMA APP — HABIT DETAIL SCREEN (FIXED) ────────────────────────
-// Fixed: Skip + Missed buttons now reflect visually
-// Fixed: XP handled in habitService before insert
+// ─── KARMA APP — HABIT DETAIL SCREEN (FULLY FIXED) ──────────────────
 
 import React, { useState, useCallback } from 'react';
 import {
@@ -29,15 +27,16 @@ const PUNISHMENT_COLORS = [
 const HabitDetailScreen = ({ navigation, route }) => {
   const { habitId } = route.params;
 
-  const [habit,       setHabit]       = useState(null);
-  const [streak,      setStreak]      = useState({ current: 0, longest: 0 });
-  const [checkins,    setCheckins]    = useState([]);
-  const [todayCheckin,setTodayCheckin]= useState(null);
-  const [punishLevel, setPunishLevel] = useState(0);
-  const [weekRate,    setWeekRate]    = useState(0);
-  const [loading,     setLoading]     = useState(true);
-  const [saving,      setSaving]      = useState(false);
-  const [error,       setError]       = useState(null);
+  const [habit,        setHabit]        = useState(null);
+  const [streak,       setStreak]       = useState({ current: 0, longest: 0 });
+  const [checkins,     setCheckins]     = useState([]);
+  const [todayStatus,  setTodayStatus]  = useState(null); // direct string state
+  const [slipCount,    setSlipCount]    = useState(0);
+  const [punishLevel,  setPunishLevel]  = useState(0);
+  const [weekRate,     setWeekRate]     = useState(0);
+  const [loading,      setLoading]      = useState(true);
+  const [saving,       setSaving]       = useState(false);
+  const [error,        setError]        = useState(null);
 
   useFocusEffect(
     useCallback(() => { _loadData(); }, [habitId])
@@ -55,8 +54,12 @@ const HabitDetailScreen = ({ navigation, route }) => {
         getWeeklyCompletionRate(habitId),
       ]);
 
-      const today        = DateUtils.today();
-      const todayEntry   = checkinsData.find(c => c.date === today) || null;
+      const today      = DateUtils.today();
+      const todayEntry = checkinsData.find(c => c.date === today);
+
+      // Set today status directly as a string
+      setTodayStatus(todayEntry?.status || null);
+      setSlipCount(todayEntry?.slip_count || 0);
 
       let punish = 0;
       if (habitData.type === 'break') {
@@ -66,40 +69,72 @@ const HabitDetailScreen = ({ navigation, route }) => {
       setHabit(habitData);
       setStreak(streakData);
       setCheckins(checkinsData);
-      setTodayCheckin(todayEntry);
       setPunishLevel(punish);
       setWeekRate(weekRateData);
+
     } catch (err) {
-      console.error('HabitDetail load:', err);
+      console.error('HabitDetail _loadData error:', err);
       setError(err.message || 'Failed to load habit');
     } finally {
       setLoading(false);
     }
   };
 
-  const _handleCheckIn = async (status, slipCount = 0) => {
+  const _doCheckIn = async (status, newSlipCount = 0) => {
     if (saving) return;
-    setSaving(true);
-    try {
-      await checkIn(habitId, status, null, slipCount);
-      await _loadData();
 
-      // Check milestone only on completion
-      if (status === 'done' || status === 'resisted') {
-        const newStreak  = await getStreak(habitId);
-        const milestones = [3,7,14,21,30,48,60,75,90,180,365];
-        if (milestones.includes(newStreak.current)) {
-          Alert.alert(
-            '🏆 Milestone Reached!',
-            getMilestoneMessage(newStreak.current, habit.name)
-          );
-        }
+    // Optimistic UI update — update state immediately so user sees change
+    const previousStatus   = todayStatus;
+    const previousSlipCount = slipCount;
+    setTodayStatus(status);
+    setSlipCount(newSlipCount);
+    setSaving(true);
+
+    try {
+      await checkIn(habitId, status, null, newSlipCount);
+
+      // Reload streak and stats after save
+      const [newStreak, newWeekRate] = await Promise.all([
+        getStreak(habitId),
+        getWeeklyCompletionRate(habitId),
+      ]);
+      setStreak(newStreak);
+      setWeekRate(newWeekRate);
+
+      // Check milestone
+      if ((status === 'done' || status === 'resisted') &&
+          [3,7,14,21,30,48,60,75,90,180,365].includes(newStreak.current)) {
+        Alert.alert(
+          '🏆 Milestone Reached!',
+          getMilestoneMessage(newStreak.current, habit.name)
+        );
       }
+
     } catch (err) {
+      // Rollback optimistic update on error
+      setTodayStatus(previousStatus);
+      setSlipCount(previousSlipCount);
       Alert.alert('Check-in Failed', err.message);
     } finally {
       setSaving(false);
     }
+  };
+
+  const _handleBuildMainBtn = () => {
+    // Main button toggles between done and missed
+    if (todayStatus === 'done') {
+      _doCheckIn('missed'); // undo
+    } else {
+      _doCheckIn('done');   // complete
+    }
+  };
+
+  const _handleSkip = () => {
+    _doCheckIn('skipped');
+  };
+
+  const _handleMissed = () => {
+    _doCheckIn('missed');
   };
 
   const _handleBreakCheckin = () => {
@@ -109,28 +144,26 @@ const HabitDetailScreen = ({ navigation, route }) => {
       [
         {
           text:    '✊ I Resisted',
-          onPress: () => _handleCheckIn('resisted'),
+          onPress: () => _doCheckIn('resisted'),
         },
         {
           text:    '😔 I Slipped',
           style:   'destructive',
-          onPress: () => {
-            const slips = todayCheckin?.slip_count || 0;
-            _handleCheckIn('slip', slips + 1);
-          },
+          onPress: () => _doCheckIn('slip', slipCount + 1),
         },
         { text: 'Cancel', style: 'cancel' },
       ]
     );
   };
 
-  // ── Computed ─────────────────────────────────────────────────────
+  // ── Computed from todayStatus string ─────────────────────────────
 
-  const todayStatus    = todayCheckin?.status || null;
-  const isDoneToday    = todayStatus === 'done' || todayStatus === 'resisted';
-  const isSkippedToday = todayStatus === 'skipped';
-  const isMissedToday  = todayStatus === 'missed';
-  const isSlippedToday = todayStatus === 'slip';
+  const isDone    = todayStatus === 'done';
+  const isResisted = todayStatus === 'resisted';
+  const isSkipped = todayStatus === 'skipped';
+  const isMissed  = todayStatus === 'missed';
+  const isSlipped = todayStatus === 'slip';
+  const isDoneOrResisted = isDone || isResisted;
 
   const accentColor = punishLevel > 0
     ? PUNISHMENT_COLORS[punishLevel]
@@ -139,19 +172,23 @@ const HabitDetailScreen = ({ navigation, route }) => {
   const weekDates  = DateUtils.getWeekDates();
   const checkinMap = {};
   checkins.forEach(c => { checkinMap[c.date] = c; });
+  // Also reflect today's optimistic state in week view
+  if (todayStatus) {
+    const today = DateUtils.today();
+    checkinMap[today] = { ...(checkinMap[today] || {}), status: todayStatus };
+  }
 
-  // ── Button label for build habits ─────────────────────────────────
-
-  const buildMainBtnLabel = () => {
-    if (isDoneToday)    return '✓ Done Today — Tap to Undo';
-    if (isSkippedToday) return '⏭ Skipped — Tap to Complete';
-    if (isMissedToday)  return '✗ Missed — Tap to Complete';
+  // Build habit main button
+  const mainBtnLabel = () => {
+    if (isDone)    return '✓ Done Today — Tap to Undo';
+    if (isSkipped) return '⏭ Skipped — Tap to Complete';
+    if (isMissed)  return '✗ Missed — Tap to Complete';
     return '☀️ Mark Complete';
   };
 
-  const buildMainBtnColor = () => {
-    if (isDoneToday) return Colors.green;
-    if (isSkippedToday || isMissedToday) return Colors.textMuted;
+  const mainBtnColor = () => {
+    if (isDone)             return Colors.green;
+    if (isSkipped || isMissed) return Colors.textMuted;
     return accentColor;
   };
 
@@ -161,6 +198,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={Colors.blue} />
+        <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
   }
@@ -168,7 +206,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
   if (error || !habit) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorText}>{error || 'Habit not found'}</Text>
+        <Text style={styles.errorMsg}>{error || 'Habit not found'}</Text>
         <TouchableOpacity style={styles.retryBtn} onPress={_loadData}>
           <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
@@ -185,6 +223,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
+        <Text style={styles.headerTitle} numberOfLines={1}>{habit.name}</Text>
         <TouchableOpacity
           onPress={() => navigation.navigate('AddHabit', { habitId })}
           style={styles.editBtn}
@@ -198,7 +237,8 @@ const HabitDetailScreen = ({ navigation, route }) => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero Card */}
+
+        {/* Hero */}
         <View style={[styles.heroCard, {
           backgroundColor: accentColor + '18',
           borderColor:     accentColor + '44',
@@ -206,8 +246,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
           <Text style={styles.heroIcon}>{habit.icon}</Text>
           <Text style={styles.heroName}>{habit.name}</Text>
           <View style={[styles.typeBadge, {
-            backgroundColor: habit.type === 'build'
-              ? Colors.greenAlpha : Colors.redAlpha,
+            backgroundColor: habit.type === 'build' ? Colors.greenAlpha : Colors.redAlpha,
           }]}>
             <Text style={[styles.typeBadgeText, {
               color: habit.type === 'build' ? Colors.green : Colors.red,
@@ -216,34 +255,31 @@ const HabitDetailScreen = ({ navigation, route }) => {
             </Text>
           </View>
           {punishLevel > 0 && (
-            <View style={[styles.punishBadge, { backgroundColor: accentColor + '22' }]}>
-              <Text style={[styles.punishBadgeText, { color: accentColor }]}>
-                ⚠️ {PUNISHMENT_LABELS[punishLevel]} PUNISHMENT
-              </Text>
-            </View>
+            <Text style={[styles.punishTag, { color: accentColor }]}>
+              ⚠️ {PUNISHMENT_LABELS[punishLevel]} PUNISHMENT ACTIVE
+            </Text>
           )}
         </View>
 
-        {/* Stats Row */}
+        {/* Stats */}
         <View style={styles.statsRow}>
           {[
             {
-              label: habit.type === 'build' ? 'CURRENT STREAK' : 'DAYS CLEAN',
-              value: `${streak.current}${streak.current > 0
-                ? (habit.type === 'build' ? ' 🔥' : ' ✊') : ''}`,
+              label: habit.type === 'build' ? 'STREAK' : 'DAYS CLEAN',
+              value: streak.current > 0
+                ? `${streak.current} ${habit.type === 'build' ? '🔥' : '✊'}`
+                : '0',
               color: streak.current > 0 ? accentColor : Colors.textMuted,
             },
             {
-              label: 'PERSONAL BEST',
+              label: 'BEST',
               value: `${streak.longest} ⭐`,
               color: Colors.gold,
             },
             {
               label: 'THIS WEEK',
               value: `${weekRate}%`,
-              color: weekRate > 70 ? Colors.green
-                   : weekRate > 40 ? Colors.gold
-                   : Colors.red,
+              color: weekRate >= 70 ? Colors.green : weekRate >= 40 ? Colors.gold : Colors.red,
             },
           ].map((s, i) => (
             <View key={i} style={styles.statCard}>
@@ -254,206 +290,201 @@ const HabitDetailScreen = ({ navigation, route }) => {
         </View>
 
         {/* Week View */}
-        <View style={styles.weekSection}>
-          <Text style={styles.sectionLabel}>THIS WEEK</Text>
-          <View style={styles.weekRow}>
-            {weekDates.map((d) => {
-              const c      = checkinMap[d.dateStr];
-              const done   = c?.status === 'done' || c?.status === 'resisted';
-              const slip   = c?.status === 'slip';
-              const missed = c?.status === 'missed';
-              const skip   = c?.status === 'skipped';
-              return (
-                <View key={d.dateStr} style={styles.weekDay}>
-                  <Text style={[styles.weekLabel,
-                    d.isToday && { color: Colors.blue }
-                  ]}>
-                    {d.label}
+        <Text style={styles.sectionLabel}>THIS WEEK</Text>
+        <View style={styles.weekRow}>
+          {weekDates.map((d) => {
+            const c    = checkinMap[d.dateStr];
+            const done = c?.status === 'done' || c?.status === 'resisted';
+            const slip = c?.status === 'slip';
+            const miss = c?.status === 'missed';
+            const skip = c?.status === 'skipped';
+            return (
+              <View key={d.dateStr} style={styles.weekDay}>
+                <Text style={[styles.weekLabel, d.isToday && { color: Colors.blue }]}>
+                  {d.label}
+                </Text>
+                <View style={[styles.weekCircle, {
+                  backgroundColor:
+                    done ? accentColor      :
+                    slip ? Colors.red+'40'  :
+                    miss ? Colors.red+'20'  :
+                    skip ? Colors.gold+'20' :
+                    d.isToday ? Colors.blueAlpha20 :
+                    Colors.backgroundCard,
+                  borderColor:
+                    d.isToday ? Colors.blue      :
+                    done      ? accentColor      :
+                    slip      ? Colors.red        :
+                    miss      ? Colors.red+'66'   :
+                    skip      ? Colors.gold+'66'  :
+                    Colors.border,
+                  borderWidth: d.isToday ? 2 : 1,
+                }]}>
+                  <Text style={{ fontSize: 11 }}>
+                    {done ? '✓' : slip ? '✗' : miss ? '–' : skip ? '⏭' : ''}
                   </Text>
-                  <View style={[styles.weekCircle, {
-                    backgroundColor:
-                      done   ? accentColor :
-                      slip   ? Colors.red + '40' :
-                      missed ? Colors.redAlpha :
-                      skip   ? Colors.backgroundCard :
-                      d.isToday ? Colors.blueAlpha20 :
-                      Colors.backgroundCard,
-                    borderColor:
-                      d.isToday ? Colors.blue :
-                      done      ? accentColor :
-                      slip      ? Colors.red :
-                      Colors.border,
-                    borderWidth: d.isToday ? 2 : 1,
-                  }]}>
-                    <Text style={{ fontSize: 12 }}>
-                      {done   ? '✓'
-                     : slip   ? '✗'
-                     : missed ? '–'
-                     : skip   ? '⏭'
-                     : d.isToday ? '·'
-                     : ''}
-                    </Text>
-                  </View>
                 </View>
-              );
-            })}
-          </View>
+              </View>
+            );
+          })}
         </View>
 
-        {/* Check-in Section */}
-        <View style={styles.checkinSection}>
-          <Text style={styles.sectionLabel}>TODAY'S ACTION</Text>
+        {/* Today's Action */}
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>TODAY'S ACTION</Text>
 
-          {habit.type === 'build' ? (
-            <View style={styles.buildBtnCol}>
-              {/* Primary — Mark Complete */}
+        {habit.type === 'build' ? (
+          <View style={styles.buildBtnCol}>
+
+            {/* Primary button */}
+            <TouchableOpacity
+              style={[styles.mainBtn, {
+                backgroundColor: mainBtnColor(),
+                opacity: saving ? 0.6 : 1,
+              }]}
+              onPress={_handleBuildMainBtn}
+              disabled={saving}
+              activeOpacity={0.8}
+            >
+              {saving
+                ? <ActivityIndicator color={Colors.white} size="small" />
+                : <Text style={styles.mainBtnText}>{mainBtnLabel()}</Text>
+              }
+            </TouchableOpacity>
+
+            {/* Skip + Missed row */}
+            <View style={styles.secondRow}>
               <TouchableOpacity
-                style={[styles.checkinBtn, {
-                  backgroundColor: buildMainBtnColor(),
-                  opacity:         saving ? 0.7 : 1,
+                style={[styles.secondBtn, {
+                  borderColor:     isSkipped ? Colors.gold : Colors.border,
+                  backgroundColor: isSkipped ? Colors.goldAlpha : Colors.backgroundCard,
+                  opacity:         saving ? 0.6 : 1,
                 }]}
-                onPress={() => _handleCheckIn(isDoneToday ? 'missed' : 'done')}
+                onPress={_handleSkip}
                 disabled={saving}
-                activeOpacity={0.85}
+                activeOpacity={0.8}
               >
-                {saving
-                  ? <ActivityIndicator color={Colors.white} />
-                  : <Text style={styles.checkinBtnText}>{buildMainBtnLabel()}</Text>
-                }
+                <Text style={[styles.secondBtnText, {
+                  color: isSkipped ? Colors.gold : Colors.textMuted,
+                }]}>
+                  ⏭ {isSkipped ? 'Skipped ✓' : 'Skip Today'}
+                </Text>
               </TouchableOpacity>
 
-              {/* Secondary — Skip + Missed */}
-              <View style={styles.buildSecondRow}>
-                <TouchableOpacity
-                  style={[styles.secondaryBtn, {
-                    borderColor:     isSkippedToday ? Colors.gold : Colors.textDim,
-                    backgroundColor: isSkippedToday ? Colors.goldAlpha : 'transparent',
-                  }]}
-                  onPress={() => _handleCheckIn('skipped')}
-                  disabled={saving}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.secondaryBtnText, {
-                    color: isSkippedToday ? Colors.gold : Colors.textMuted,
-                  }]}>
-                    {isSkippedToday ? '⏭ Skipped' : '⏭ Skip Today'}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.secondaryBtn, {
-                    borderColor:     isMissedToday ? Colors.red : Colors.red + '55',
-                    backgroundColor: isMissedToday ? Colors.redAlpha : 'transparent',
-                  }]}
-                  onPress={() => _handleCheckIn('missed')}
-                  disabled={saving}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.secondaryBtnText, {
-                    color: isMissedToday ? Colors.red : Colors.red + 'AA',
-                  }]}>
-                    {isMissedToday ? '✗ Marked Missed' : '✗ Mark Missed'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                style={[styles.secondBtn, {
+                  borderColor:     isMissed ? Colors.red : Colors.border,
+                  backgroundColor: isMissed ? Colors.redAlpha : Colors.backgroundCard,
+                  opacity:         saving ? 0.6 : 1,
+                }]}
+                onPress={_handleMissed}
+                disabled={saving}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.secondBtnText, {
+                  color: isMissed ? Colors.red : Colors.textMuted,
+                }]}>
+                  ✗ {isMissed ? 'Missed ✓' : 'Mark Missed'}
+                </Text>
+              </TouchableOpacity>
             </View>
 
-          ) : (
-            /* Break habit buttons */
-            <View style={styles.breakBtnCol}>
-              <View style={styles.breakBtnRow}>
-                <TouchableOpacity
-                  style={[styles.breakBtn, {
-                    backgroundColor: isDoneToday ? Colors.greenAlpha : Colors.green + '15',
-                    borderColor:     isDoneToday ? Colors.green : Colors.green + '66',
-                    flex:             1,
-                    opacity:          saving ? 0.7 : 1,
-                  }]}
-                  onPress={() => _handleCheckIn('resisted')}
-                  disabled={saving}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[styles.breakBtnText, { color: Colors.green }]}>
-                    {isDoneToday ? '✓ Resisted Today' : '✊ I Resisted'}
-                  </Text>
-                </TouchableOpacity>
+          </View>
 
-                <TouchableOpacity
-                  style={[styles.breakBtn, {
-                    backgroundColor: isSlippedToday ? Colors.redAlpha : Colors.red + '15',
-                    borderColor:     isSlippedToday ? Colors.red : Colors.red + '66',
-                    flex:             1,
-                    opacity:          saving ? 0.7 : 1,
-                  }]}
-                  onPress={_handleBreakCheckin}
-                  disabled={saving}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[styles.breakBtnText, { color: Colors.red }]}>
-                    {isSlippedToday
-                      ? `😔 Slipped (${todayCheckin?.slip_count || 1}x)`
-                      : '😔 Log Slip'
-                    }
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {/* Punishment message */}
-          {punishLevel > 0 && (
-            <View style={[styles.punishMsg, { borderColor: accentColor + '44' }]}>
-              <Text style={[styles.punishMsgLabel, { color: accentColor }]}>
-                KARMA SPEAKS
+        ) : (
+          /* Break habit */
+          <View style={styles.breakBtnRow}>
+            <TouchableOpacity
+              style={[styles.breakBtn, {
+                borderColor:     isResisted ? Colors.green : Colors.green + '55',
+                backgroundColor: isResisted ? Colors.greenAlpha : Colors.green + '10',
+                opacity:         saving ? 0.6 : 1,
+              }]}
+              onPress={() => _doCheckIn('resisted')}
+              disabled={saving}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.breakBtnText, { color: Colors.green }]}>
+                {isResisted ? '✓ Resisted Today' : '✊ I Resisted'}
               </Text>
-              <Text style={styles.punishMsgText}>
-                {punishLevel === 1 && "You're slipping, Neel. This is becoming a pattern."}
-                {punishLevel === 2 && "3-4 slips this week. Your future self is watching. Fix this now."}
-                {punishLevel === 3 && "This is serious. You are actively working against yourself. What needs to change?"}
-                {punishLevel === 4 && "Consistent failure. This deserves your full attention, Neel. Today is day 1 again."}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.breakBtn, {
+                borderColor:     isSlipped ? Colors.red : Colors.red + '55',
+                backgroundColor: isSlipped ? Colors.redAlpha : Colors.red + '10',
+                opacity:         saving ? 0.6 : 1,
+              }]}
+              onPress={_handleBreakCheckin}
+              disabled={saving}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.breakBtnText, { color: Colors.red }]}>
+                {isSlipped ? `😔 Slipped (${slipCount}x)` : '😔 Log Slip'}
               </Text>
-            </View>
-          )}
-        </View>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Today status indicator */}
+        {todayStatus && (
+          <View style={styles.statusBar}>
+            <Text style={styles.statusText}>
+              {todayStatus === 'done'      && '✅ Marked complete today'}
+              {todayStatus === 'resisted'  && '✊ Resisted today — streak growing'}
+              {todayStatus === 'skipped'   && '⏭ Skipped today — no streak impact'}
+              {todayStatus === 'missed'    && '❌ Missed today — streak reset'}
+              {todayStatus === 'slip'      && `😔 Slipped ${slipCount}x today`}
+            </Text>
+          </View>
+        )}
+
+        {/* Punishment message */}
+        {punishLevel > 0 && (
+          <View style={[styles.punishMsg, { borderColor: accentColor + '44' }]}>
+            <Text style={[styles.punishLabel, { color: accentColor }]}>
+              KARMA SPEAKS
+            </Text>
+            <Text style={styles.punishText}>
+              {punishLevel === 1 && "You're slipping, Neel. This is becoming a pattern."}
+              {punishLevel === 2 && "3-4 slips this week. Your future self is watching."}
+              {punishLevel === 3 && "Serious. You are working against yourself. What needs to change?"}
+              {punishLevel === 4 && "Consistent failure. Full attention required, Neel. Day 1 again."}
+            </Text>
+          </View>
+        )}
 
         {/* 30 Day History */}
-        <View style={styles.historySection}>
-          <Text style={styles.sectionLabel}>LAST 30 DAYS</Text>
-          <View style={styles.historyGrid}>
-            {DateUtils.getLastNDays(30).map((dateStr) => {
-              const c    = checkinMap[dateStr];
-              const done = c?.status === 'done' || c?.status === 'resisted';
-              const slip = c?.status === 'slip';
-              const miss = c?.status === 'missed';
-              return (
-                <View key={dateStr} style={[styles.historyCell, {
-                  backgroundColor:
-                    done ? accentColor + 'CC' :
-                    slip ? Colors.red + '66' :
-                    miss ? Colors.red + '22' :
-                    Colors.backgroundCard,
-                }]} />
-              );
-            })}
-          </View>
-          <View style={styles.historyLegend}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: accentColor }]} />
-              <Text style={styles.legendText}>Done</Text>
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>LAST 30 DAYS</Text>
+        <View style={styles.historyGrid}>
+          {DateUtils.getLastNDays(30).map((dateStr) => {
+            const c    = checkinMap[dateStr];
+            const done = c?.status === 'done' || c?.status === 'resisted';
+            const slip = c?.status === 'slip';
+            const miss = c?.status === 'missed';
+            return (
+              <View key={dateStr} style={[styles.historyCell, {
+                backgroundColor:
+                  done ? accentColor + 'CC' :
+                  slip ? Colors.red  + '88' :
+                  miss ? Colors.red  + '33' :
+                  Colors.backgroundCard,
+              }]} />
+            );
+          })}
+        </View>
+
+        <View style={styles.historyLegend}>
+          {[
+            { color: accentColor, label: 'Done' },
+            { color: Colors.red + '88', label: 'Slip' },
+            { color: Colors.red + '33', label: 'Missed' },
+            { color: Colors.backgroundCard, label: 'No data' },
+          ].map((l, i) => (
+            <View key={i} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: l.color }]} />
+              <Text style={styles.legendText}>{l.label}</Text>
             </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: Colors.red + '66' }]} />
-              <Text style={styles.legendText}>Slip</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: Colors.red + '22' }]} />
-              <Text style={styles.legendText}>Missed</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: Colors.backgroundCard }]} />
-              <Text style={styles.legendText}>No data</Text>
-            </View>
-          </View>
+          ))}
         </View>
 
         <View style={{ height: 40 }} />
@@ -466,43 +497,36 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Colors.background },
   center: {
     flex: 1, backgroundColor: Colors.background,
-    alignItems: 'center', justifyContent: 'center', padding: 24,
+    alignItems: 'center', justifyContent: 'center', gap: 12,
   },
-  errorText: { color: Colors.red, textAlign: 'center', marginBottom: 12 },
-  retryBtn:  { backgroundColor: Colors.blue, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 },
-  retryText: { color: Colors.white, fontWeight: 'bold' },
+  loadingText: { color: Colors.textMuted, fontSize: 13 },
+  errorMsg:    { color: Colors.red, textAlign: 'center', padding: 20 },
+  retryBtn:    { backgroundColor: Colors.blue, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 },
+  retryText:   { color: Colors.white, fontWeight: 'bold' },
 
   header: {
-    flexDirection:     'row',
-    justifyContent:    'space-between',
-    alignItems:        'center',
-    paddingHorizontal: 16,
-    paddingVertical:   14,
-    borderBottomWidth:  1,
-    borderBottomColor:  Colors.border,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: Colors.border,
   },
-  backBtn:  { padding: 4 },
-  backText: { color: Colors.blue, fontSize: 14 },
-  editBtn:  { padding: 4 },
-  editText: { color: Colors.gold, fontSize: 14 },
+  backBtn:     { padding: 4, minWidth: 50 },
+  backText:    { color: Colors.blue, fontSize: 14 },
+  headerTitle: { fontSize: 15, color: Colors.textPrimary, fontWeight: 'bold', flex: 1, textAlign: 'center' },
+  editBtn:     { padding: 4, minWidth: 50, alignItems: 'flex-end' },
+  editText:    { color: Colors.gold, fontSize: 14 },
 
   scroll:        { flex: 1 },
   scrollContent: { padding: 16 },
 
   heroCard: {
-    borderRadius:   20,
-    borderWidth:     1,
-    padding:        20,
-    alignItems:     'center',
-    marginBottom:   16,
-    gap:             8,
+    borderRadius: 20, borderWidth: 1, padding: 20,
+    alignItems: 'center', marginBottom: 16, gap: 8,
   },
   heroIcon:  { fontSize: 48 },
   heroName:  { fontSize: 20, color: Colors.textPrimary, fontWeight: 'bold', textAlign: 'center' },
   typeBadge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20 },
-  typeBadgeText:  { fontSize: 11, fontWeight: 'bold', letterSpacing: 1 },
-  punishBadge:    { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20 },
-  punishBadgeText:{ fontSize: 10, fontWeight: 'bold', letterSpacing: 1 },
+  typeBadgeText: { fontSize: 11, fontWeight: 'bold', letterSpacing: 1 },
+  punishTag: { fontSize: 10, fontWeight: 'bold', letterSpacing: 1 },
 
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   statCard: {
@@ -513,67 +537,58 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 18, fontWeight: 'bold' },
   statLabel: { fontSize: 8, color: Colors.textDim, letterSpacing: 1, textAlign: 'center' },
 
-  weekSection:  { marginBottom: 16 },
   sectionLabel: { fontSize: 9, color: Colors.textDim, letterSpacing: 3, marginBottom: 10 },
-  weekRow:      { flexDirection: 'row', justifyContent: 'space-between' },
-  weekDay:      { alignItems: 'center', gap: 6, flex: 1 },
-  weekLabel:    { fontSize: 9, color: Colors.textDim },
+
+  weekRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  weekDay: { alignItems: 'center', gap: 6, flex: 1 },
+  weekLabel: { fontSize: 9, color: Colors.textDim },
   weekCircle: {
     width: 32, height: 32, borderRadius: 16,
     alignItems: 'center', justifyContent: 'center', borderWidth: 1,
   },
 
-  checkinSection: { marginBottom: 16 },
-
-  // Build habit buttons
-  buildBtnCol:    { gap: 8 },
-  buildSecondRow: { flexDirection: 'row', gap: 8 },
-  checkinBtn: {
-    borderRadius:    16,
-    paddingVertical:  16,
-    alignItems:      'center',
-    shadowColor:     Colors.blue,
-    shadowOffset:    { width: 0, height: 4 },
-    shadowOpacity:   0.3,
-    shadowRadius:    10,
-    elevation:        5,
+  // Build buttons
+  buildBtnCol: { gap: 10 },
+  mainBtn: {
+    borderRadius: 16, paddingVertical: 16, alignItems: 'center',
+    shadowColor: Colors.blue, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3, shadowRadius: 10, elevation: 5,
   },
-  checkinBtnText:   { color: Colors.white, fontSize: 15, fontWeight: 'bold' },
-  secondaryBtn: {
-    flex:            1,
-    borderRadius:    12,
-    borderWidth:      1,
-    paddingVertical:  12,
-    alignItems:      'center',
+  mainBtnText: { color: Colors.white, fontSize: 15, fontWeight: 'bold' },
+  secondRow:   { flexDirection: 'row', gap: 10 },
+  secondBtn: {
+    flex: 1, borderRadius: 12, borderWidth: 1,
+    paddingVertical: 12, alignItems: 'center',
   },
-  secondaryBtnText: { fontSize: 12, fontWeight: '600' },
+  secondBtnText: { fontSize: 12, fontWeight: '600' },
 
-  // Break habit buttons
-  breakBtnCol: { gap: 8 },
+  // Break buttons
   breakBtnRow: { flexDirection: 'row', gap: 10 },
   breakBtn: {
-    borderRadius:    14,
-    paddingVertical:  14,
-    alignItems:      'center',
-    borderWidth:      1,
+    flex: 1, borderRadius: 14, paddingVertical: 14,
+    alignItems: 'center', borderWidth: 1,
   },
   breakBtnText: { fontSize: 14, fontWeight: 'bold' },
 
-  punishMsg: {
-    marginTop:       12,
-    backgroundColor: Colors.backgroundCard,
-    borderRadius:    12,
-    borderWidth:      1,
-    padding:         14,
-    gap:              6,
+  // Status bar
+  statusBar: {
+    marginTop: 10, backgroundColor: Colors.backgroundCard,
+    borderRadius: 10, padding: 10, alignItems: 'center',
   },
-  punishMsgLabel: { fontSize: 9, letterSpacing: 2, fontWeight: 'bold' },
-  punishMsgText:  { fontSize: 12, color: Colors.textSecondary, lineHeight: 18, fontStyle: 'italic' },
+  statusText: { fontSize: 12, color: Colors.textMuted },
 
-  historySection: { marginBottom: 16 },
-  historyGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  historyCell: { width: '6%', aspectRatio: 1, borderRadius: 3 },
-  historyLegend: { flexDirection: 'row', gap: 16, marginTop: 8, flexWrap: 'wrap' },
+  // Punishment
+  punishMsg: {
+    marginTop: 12, backgroundColor: Colors.backgroundCard,
+    borderRadius: 12, borderWidth: 1, padding: 14, gap: 6,
+  },
+  punishLabel: { fontSize: 9, letterSpacing: 2, fontWeight: 'bold' },
+  punishText:  { fontSize: 12, color: Colors.textSecondary, lineHeight: 18, fontStyle: 'italic' },
+
+  // History
+  historyGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  historyCell:   { width: '6%', aspectRatio: 1, borderRadius: 3 },
+  historyLegend: { flexDirection: 'row', gap: 16, marginTop: 10, flexWrap: 'wrap' },
   legendItem:    { flexDirection: 'row', alignItems: 'center', gap: 5 },
   legendDot:     { width: 10, height: 10, borderRadius: 2 },
   legendText:    { fontSize: 10, color: Colors.textDim },
