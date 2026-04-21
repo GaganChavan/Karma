@@ -1,6 +1,6 @@
-// ─── KARMA APP — NAVIGATION (PHASE 4) ────────────────────────────────
-// Added: CelebrationScreen to stack
-// All screen names verified consistent across all files
+// ─── KARMA APP — NAVIGATION (PHASE 5) ────────────────────────────────
+// StatsScreen now real — wired to tab
+// HistoryScreen added to stack
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
@@ -11,9 +11,10 @@ import HomeScreen              from '../screens/HomeScreen';
 import AddHabitScreen          from '../screens/AddHabitScreen';
 import HabitDetailScreen       from '../screens/HabitDetailScreen';
 import CelebrationScreen       from '../screens/CelebrationScreen';
+import StatsScreen             from '../screens/StatsScreen';
+import HistoryScreen           from '../screens/HistoryScreen';
 import {
   HabitsScreen,
-  StatsScreen,
   SettingsScreen,
 } from '../screens/PlaceholderScreens';
 
@@ -33,7 +34,7 @@ const KarmaTabBar = ({ state, navigation }) => {
 
   return (
     <View style={styles.tabBar}>
-      {tabs.map((tab, index) => {
+      {tabs.map((tab) => {
         if (tab.isCenter) {
           return (
             <TouchableOpacity
@@ -94,13 +95,18 @@ const TabNavigator = () => (
 const AppNavigator = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="Main"        component={TabNavigator} />
-    <Stack.Screen name="AddHabit"    component={AddHabitScreen}
+    <Stack.Screen
+      name="AddHabit"
+      component={AddHabitScreen}
       options={{ presentation: 'modal', gestureEnabled: true }}
     />
     <Stack.Screen name="HabitDetail" component={HabitDetailScreen} />
-    <Stack.Screen name="Celebration" component={CelebrationScreen}
+    <Stack.Screen
+      name="Celebration"
+      component={CelebrationScreen}
       options={{ presentation: 'modal', gestureEnabled: false }}
     />
+    <Stack.Screen name="History"     component={HistoryScreen} />
   </Stack.Navigator>
 );
 

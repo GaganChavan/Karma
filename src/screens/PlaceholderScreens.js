@@ -1,33 +1,27 @@
-// ─── KARMA APP — PLACEHOLDER SCREENS ────────────────────────────────
-// Phase 2 will replace these with full implementations.
+// ─── KARMA APP — PLACEHOLDER SCREENS (PHASE 5 UPDATE) ───────────────
+// StatsScreen removed — now has full implementation.
+// HabitsScreen and SettingsScreen still placeholder — Phase 7.
 
 import React from 'react';
-import { View, Text, StyleSheet, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, StatusBar, TouchableOpacity } from 'react-native';
 import { Colors } from '../constants/colors';
 
-const PlaceholderScreen = ({ title, icon, subtitle }) => (
+const PlaceholderScreen = ({ title, icon, subtitle, phase }) => (
   <View style={styles.container}>
     <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
     <Text style={styles.icon}>{icon}</Text>
     <Text style={styles.title}>{title}</Text>
     <Text style={styles.subtitle}>{subtitle}</Text>
-    <Text style={styles.phase}>Coming in Phase 2 🔱</Text>
+    <Text style={styles.phase}>Coming in Phase {phase} 🔱</Text>
   </View>
 );
 
 export const HabitsScreen = () => (
   <PlaceholderScreen
     icon="✅"
-    title="Your Habits"
-    subtitle="Add, edit, and manage all your habits here."
-  />
-);
-
-export const StatsScreen = () => (
-  <PlaceholderScreen
-    icon="📊"
-    title="Karma Stats"
-    subtitle="Your consistency heatmap, streaks, and milestones."
+    title="All Habits"
+    subtitle="Manage, reorder, and view all your habits in one place."
+    phase="7"
   />
 );
 
@@ -35,7 +29,8 @@ export const SettingsScreen = () => (
   <PlaceholderScreen
     icon="⚙️"
     title="Settings"
-    subtitle="Notifications, alter ego, splash image, backup."
+    subtitle="Notifications, alter ego, theme, backup, and more."
+    phase="7"
   />
 );
 
