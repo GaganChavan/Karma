@@ -1,6 +1,6 @@
-// ─── KARMA APP — ROOT ENTRY POINT (PHASE 3 UPDATE) ───────────────────
-// Added: notification handler configuration at startup
-// Added: notification response listener (tap notification → open app)
+// ─── KARMA APP — ROOT (PHASE 7 FINAL) ────────────────────────────────
+// Reads theme preference from DB before first render.
+// Applies theme to Colors object — all screens pick it up.
 
 import React, { useState, useEffect, useRef } from 'react';
 import { NavigationContainer }  from '@react-navigation/native';
@@ -10,75 +10,91 @@ import * as Notifications       from 'expo-notifications';
 import ErrorBoundary            from './src/components/ErrorBoundary';
 import SplashScreen             from './src/screens/SplashScreen';
 import AppNavigator             from './src/navigation/AppNavigator';
-import { configureNotifications, scheduleAllHabitNotifications } from './src/services/notificationService';
+import { Colors, setAppTheme }  from './src/constants/colors';
+import {
+  configureNotifications,
+  scheduleAllHabitNotifications,
+} from './src/services/notificationService';
+import { getDatabase }    from './src/database/database';
+import { getSetting }     from './src/database/habitService';
 
-// Configure how notifications appear when app is foregrounded
 configureNotifications();
 
-const KarmaNavTheme = {
-  dark: true,
-  colors: {
-    primary:      '#1E7FFF',
-    background:   '#020408',
-    card:         '#050A18',
-    text:         '#E8F0FF',
-    border:       'rgba(30,127,255,0.2)',
-    notification: '#FFB347',
-  },
-};
-
 export default function App() {
-  const [appReady, setAppReady]     = useState(false);
-  const navigationRef               = useRef(null);
-  const notifListenerRef            = useRef(null);
-  const notifResponseListenerRef    = useRef(null);
+  const [ready,      setReady]      = useState(false);
+  const [appVisible, setAppVisible] = useState(false);
+  const navRef                       = useRef(null);
+  const responseListenerRef          = useRef(null);
 
   useEffect(() => {
-    // Listen for notifications received while app is open
-    notifListenerRef.current = Notifications.addNotificationReceivedListener(notification => {
-      console.log('📩 Notification received:', notification.request.content.title);
-    });
-
-    // Listen for user tapping a notification
-    notifResponseListenerRef.current = Notifications.addNotificationResponseReceivedListener(response => {
-      const data = response.notification.request.content.data;
-      console.log('👆 Notification tapped:', data);
-
-      // Navigate to relevant screen based on notification type
-      if (data?.habitId && navigationRef.current) {
-        navigationRef.current.navigate('HabitDetail', { habitId: data.habitId });
-      }
-    });
-
+    _applyThemeEarly();
+    _setupNotifListener();
     return () => {
-      // Cleanup listeners on unmount
-      if (notifListenerRef.current) {
-        Notifications.removeNotificationSubscription(notifListenerRef.current);
-      }
-      if (notifResponseListenerRef.current) {
-        Notifications.removeNotificationSubscription(notifResponseListenerRef.current);
+      if (responseListenerRef.current) {
+        Notifications.removeNotificationSubscription(responseListenerRef.current);
       }
     };
   }, []);
 
+  // Apply theme before splash even shows — prevents flash
+  const _applyThemeEarly = async () => {
+    try {
+      await getDatabase();
+      const theme = await getSetting('app_theme');
+      setAppTheme(theme || 'dark');
+    } catch {
+      setAppTheme('dark');
+    }
+  };
+
+  const _setupNotifListener = () => {
+    responseListenerRef.current = Notifications.addNotificationResponseReceivedListener(
+      response => {
+        try {
+          const data = response.notification.request.content.data;
+          if (data?.habitId && navRef.current) {
+            navRef.current.navigate('HabitDetail', { habitId: data.habitId });
+          }
+        } catch (err) {
+          console.warn('Notification response error:', err.message);
+        }
+      }
+    );
+  };
+
   const _handleAppReady = async () => {
-    // Schedule all habit notifications after app initializes
     try {
       await scheduleAllHabitNotifications();
-    } catch (error) {
-      console.warn('Could not schedule notifications:', error.message);
+    } catch (err) {
+      console.warn('Could not schedule notifications:', err.message);
     }
-    setAppReady(true);
+    setAppVisible(true);
+  };
+
+  const navTheme = {
+    dark: Colors.isDark,
+    colors: {
+      primary:      Colors.gold,
+      background:   Colors.background,
+      card:         Colors.backgroundCard,
+      text:         Colors.textPrimary,
+      border:       Colors.separator,
+      notification: Colors.gold,
+    },
   };
 
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
-        <StatusBar style="light" backgroundColor="transparent" translucent />
-        {!appReady ? (
+        <StatusBar
+          style={Colors.isDark ? 'light' : 'dark'}
+          backgroundColor="transparent"
+          translucent
+        />
+        {!appVisible ? (
           <SplashScreen onReady={_handleAppReady} />
         ) : (
-          <NavigationContainer theme={KarmaNavTheme} ref={navigationRef}>
+          <NavigationContainer theme={navTheme} ref={navRef}>
             <AppNavigator />
           </NavigationContainer>
         )}
