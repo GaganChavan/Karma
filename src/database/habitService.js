@@ -1,42 +1,42 @@
-// ─── KARMA APP — HABIT SERVICE ──────────────────────────────────────
-// All database operations for habits, checkins, streaks, settings.
-// Every function validates input and throws descriptive errors.
+// ─── KARMA APP — HABIT SERVICE (PHASE 4 FINAL) ───────────────────────
+// Complete rewrite of XP logic — integrated with gamificationService.
+// Every function is safe, validated, and error-handled.
 
 import { getDatabase } from './database';
+import { calculateCheckinXP, awardXP } from '../services/gamificationService';
 
-// ── Validation helpers ────────────────────────────────────────────────
-
-const validateHabitInput = (habit) => {
-  if (!habit) throw new Error('Habit data is required');
-  const name = habit.name?.trim() || '';
-  if (name.length === 0)  throw new Error("Habit name can't be empty, Neel");
-  if (name.length < 3)    throw new Error('Habit name must be at least 3 characters');
-  if (name.length > 50)   throw new Error('Habit name must be under 50 characters');
-  if (!['build','break'].includes(habit.type)) {
-    throw new Error('Habit type must be "build" or "break"');
-  }
-};
+// ── Helpers ───────────────────────────────────────────────────────────
 
 const getTodayDate = () => new Date().toISOString().split('T')[0];
 
 const getDateString = (date) => {
-  if (typeof date === 'string') return date;
+  if (typeof date === 'string') return date.split('T')[0];
   return date.toISOString().split('T')[0];
 };
 
-// ── HABITS — CRUD ─────────────────────────────────────────────────────
+// ── Validation ────────────────────────────────────────────────────────
+
+const validateHabitInput = (habit) => {
+  if (!habit) throw new Error('Habit data is required');
+  const name = habit.name?.trim() || '';
+  if (name.length === 0) throw new Error("Habit name can't be empty, Neel");
+  if (name.length < 3)   throw new Error('Habit name must be at least 3 characters');
+  if (name.length > 50)  throw new Error('Habit name must be under 50 characters');
+  if (!['build','break'].includes(habit.type)) {
+    throw new Error('Habit type must be build or break');
+  }
+};
+
+// ── HABITS CRUD ───────────────────────────────────────────────────────
 
 export const getAllHabits = async () => {
   try {
     const db = await getDatabase();
-    const habits = await db.getAllAsync(
-      `SELECT * FROM habits
-       WHERE is_active = 1
-       ORDER BY sort_order ASC, created_at ASC`
-    );
-    return habits || [];
+    return await db.getAllAsync(
+      `SELECT * FROM habits WHERE is_active = 1 ORDER BY sort_order ASC, created_at ASC`
+    ) || [];
   } catch (error) {
-    console.error('getAllHabits:', error);
+    console.error('getAllHabits:', error.message);
     throw new Error(`Couldn't load your habits: ${error.message}`);
   }
 };
@@ -44,10 +44,9 @@ export const getAllHabits = async () => {
 export const getHabitById = async (id) => {
   if (!id) throw new Error('Habit ID is required');
   try {
-    const db = await getDatabase();
+    const db    = await getDatabase();
     const habit = await db.getFirstAsync(
-      'SELECT * FROM habits WHERE id = ? AND is_active = 1',
-      [id]
+      'SELECT * FROM habits WHERE id = ? AND is_active = 1', [id]
     );
     if (!habit) throw new Error('Habit not found');
     return habit;
@@ -58,9 +57,9 @@ export const getHabitById = async (id) => {
 
 export const createHabit = async (habit) => {
   validateHabitInput(habit);
-
   try {
     const db = await getDatabase();
+
     const existing = await db.getFirstAsync(
       'SELECT id FROM habits WHERE lower(trim(name)) = lower(?) AND is_active = 1',
       [habit.name.trim()]
@@ -72,7 +71,6 @@ export const createHabit = async (habit) => {
     const count = await db.getFirstAsync(
       'SELECT COUNT(*) as count FROM habits WHERE is_active = 1'
     );
-    const sortOrder = (count?.count || 0);
 
     const result = await db.runAsync(
       `INSERT INTO habits
@@ -82,54 +80,53 @@ export const createHabit = async (habit) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         habit.name.trim(),
-        habit.icon            || '⭐',
-        habit.color           || '#1E7FFF',
+        habit.icon             || '⭐',
+        habit.color            || '#1E7FFF',
         habit.type,
-        habit.frequency       || 'daily',
-        habit.days            || '1,2,3,4,5,6,7',
-        habit.reminder_time   || null,
-        habit.reminder_type   || 'none',
-        habit.goal_days       || 0,
+        habit.frequency        || 'daily',
+        habit.days             || '1,2,3,4,5,6,7',
+        habit.reminder_time    || null,
+        habit.reminder_type    || 'none',
+        habit.goal_days        || 0,
         habit.punishment_sensitivity || 'balanced',
-        sortOrder,
+        count?.count || 0,
       ]
     );
 
-    console.log(`✅ Habit created: "${habit.name}" (id: ${result.lastInsertRowId})`);
-    // No XP awarded for creating a habit — only for completing it
+    console.log(`✅ Habit created: "${habit.name}" id:${result.lastInsertRowId}`);
     return result.lastInsertRowId;
   } catch (error) {
     if (error.message.includes("can't be empty") ||
         error.message.includes('already exists') ||
-        error.message.includes('must be')) {
+        error.message.includes('must be') ||
+        error.message.includes('at least') ||
+        error.message.includes('under')) {
       throw error;
     }
-    console.error('createHabit:', error);
     throw new Error(`Couldn't create habit: ${error.message}`);
   }
 };
 
 export const updateHabit = async (id, updates) => {
-  if (!id) throw new Error('Habit ID is required to update');
+  if (!id) throw new Error('Habit ID required to update');
   if (updates.name !== undefined) {
     const name = updates.name?.trim() || '';
     if (name.length === 0) throw new Error("Habit name can't be empty, Neel");
     if (name.length < 3)   throw new Error('Habit name must be at least 3 characters');
     if (name.length > 50)  throw new Error('Habit name must be under 50 characters');
   }
-
   try {
     const db = await getDatabase();
     await db.runAsync(
       `UPDATE habits SET
-        name = COALESCE(?, name),
-        icon = COALESCE(?, icon),
-        color = COALESCE(?, color),
-        reminder_time = ?,
-        reminder_type = COALESCE(?, reminder_type),
-        goal_days = COALESCE(?, goal_days),
+        name                   = COALESCE(?, name),
+        icon                   = COALESCE(?, icon),
+        color                  = COALESCE(?, color),
+        reminder_time          = ?,
+        reminder_type          = COALESCE(?, reminder_type),
+        goal_days              = COALESCE(?, goal_days),
         punishment_sensitivity = COALESCE(?, punishment_sensitivity),
-        updated_at = datetime('now','localtime')
+        updated_at             = datetime('now','localtime')
        WHERE id = ? AND is_active = 1`,
       [
         updates.name?.trim()           || null,
@@ -142,26 +139,20 @@ export const updateHabit = async (id, updates) => {
         id,
       ]
     );
-    console.log(`✅ Habit ${id} updated`);
   } catch (error) {
-    if (error.message.includes("can't be empty") ||
-        error.message.includes('must be')) {
-      throw error;
-    }
+    if (error.message.includes("can't be empty") || error.message.includes('must be')) throw error;
     throw new Error(`Couldn't update habit: ${error.message}`);
   }
 };
 
 export const archiveHabit = async (id) => {
-  if (!id) throw new Error('Habit ID is required to archive');
+  if (!id) throw new Error('Habit ID required to archive');
   try {
     const db = await getDatabase();
     await db.runAsync(
-      `UPDATE habits SET is_active = 0, updated_at = datetime('now','localtime')
-       WHERE id = ?`,
+      `UPDATE habits SET is_active = 0, updated_at = datetime('now','localtime') WHERE id = ?`,
       [id]
     );
-    console.log(`✅ Habit ${id} archived`);
   } catch (error) {
     throw new Error(`Couldn't archive habit: ${error.message}`);
   }
@@ -172,10 +163,7 @@ export const reorderHabits = async (orderedIds) => {
   try {
     const db = await getDatabase();
     for (let i = 0; i < orderedIds.length; i++) {
-      await db.runAsync(
-        'UPDATE habits SET sort_order = ? WHERE id = ?',
-        [i, orderedIds[i]]
-      );
+      await db.runAsync('UPDATE habits SET sort_order = ? WHERE id = ?', [i, orderedIds[i]]);
     }
   } catch (error) {
     throw new Error(`Couldn't reorder habits: ${error.message}`);
@@ -186,26 +174,12 @@ export const reorderHabits = async (orderedIds) => {
 
 export const getTodayCheckins = async () => {
   try {
-    const db    = await getDatabase();
-    const today = getTodayDate();
+    const db = await getDatabase();
     return await db.getAllAsync(
-      'SELECT * FROM checkins WHERE date = ?',
-      [today]
+      'SELECT * FROM checkins WHERE date = ?', [getTodayDate()]
     ) || [];
   } catch (error) {
     throw new Error(`Couldn't load today's check-ins: ${error.message}`);
-  }
-};
-
-export const getCheckinsForDate = async (date) => {
-  try {
-    const db = await getDatabase();
-    return await db.getAllAsync(
-      'SELECT * FROM checkins WHERE date = ?',
-      [getDateString(date)]
-    ) || [];
-  } catch (error) {
-    throw new Error(`Couldn't load check-ins for date: ${error.message}`);
   }
 };
 
@@ -214,10 +188,7 @@ export const getCheckinsForHabit = async (habitId, limit = 90) => {
   try {
     const db = await getDatabase();
     return await db.getAllAsync(
-      `SELECT * FROM checkins
-       WHERE habit_id = ?
-       ORDER BY date DESC
-       LIMIT ?`,
+      `SELECT * FROM checkins WHERE habit_id = ? ORDER BY date DESC LIMIT ?`,
       [habitId, limit]
     ) || [];
   } catch (error) {
@@ -226,10 +197,11 @@ export const getCheckinsForHabit = async (habitId, limit = 90) => {
 };
 
 export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
-  if (!habitId) throw new Error('Habit ID is required for check-in');
+  if (!habitId) throw new Error('Habit ID required for check-in');
+
   const validStatuses = ['done','missed','slip','resisted','skipped'];
   if (!validStatuses.includes(status)) {
-    throw new Error(`Invalid status "${status}". Must be one of: ${validStatuses.join(', ')}`);
+    throw new Error(`Invalid status "${status}"`);
   }
   if (note && note.length > 300) {
     throw new Error('Note must be under 300 characters');
@@ -239,48 +211,17 @@ export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
     const db    = await getDatabase();
     const today = getTodayDate();
 
-    // ── XP Logic FIRST — before insert overwrites the old status ──────
-    // Read current status for today BEFORE we change it
+    // ── Read PREVIOUS status BEFORE we change it ──────────────────────
     const existing = await db.getFirstAsync(
       'SELECT status FROM checkins WHERE habit_id = ? AND date = ?',
       [habitId, today]
     );
+    const previousStatus = existing?.status || null;
 
-    const wasComplete = existing?.status === 'done' || existing?.status === 'resisted';
-    const nowComplete = status === 'done' || status === 'resisted';
+    // ── Calculate XP change BEFORE insert ─────────────────────────────
+    const xpChange = calculateCheckinXP(previousStatus, status);
 
-    // Award XP only when transitioning TO complete for first time
-    const xpToAward  = nowComplete && !wasComplete
-      ? (status === 'done' ? 10 : 8)
-      : 0;
-
-    // Deduct XP when undoing a completion
-    const xpToDeduct = !nowComplete && wasComplete
-      ? (existing?.status === 'done' ? 10 : 8)
-      : 0;
-
-    if (xpToAward > 0 || xpToDeduct > 0) {
-      const currentSetting = await db.getFirstAsync(
-        "SELECT value FROM settings WHERE key = 'total_xp'"
-      );
-      const currentXP = parseInt(currentSetting?.value || '0');
-      const newXP     = Math.max(0, currentXP + xpToAward - xpToDeduct);
-
-      await db.runAsync(
-        "UPDATE settings SET value = ? WHERE key = 'total_xp'",
-        [String(newXP)]
-      );
-
-      if (xpToAward > 0) {
-        await db.runAsync(
-          'INSERT INTO xp_log (habit_id, xp, reason, date) VALUES (?, ?, ?, ?)',
-          [habitId, xpToAward, `Habit ${status}`, today]
-        );
-      }
-      console.log(`⚡ XP: +${xpToAward} -${xpToDeduct} → total ${newXP}`);
-    }
-
-    // ── Now do the actual check-in insert / update ─────────────────────
+    // ── Do the insert / update ────────────────────────────────────────
     await db.runAsync(
       `INSERT INTO checkins (habit_id, date, status, note, slip_count)
        VALUES (?, ?, ?, ?, ?)
@@ -291,11 +232,24 @@ export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
       [habitId, today, status, note, slipCount]
     );
 
-    console.log(`✅ Check-in: habit ${habitId} → ${status}`);
+    // ── Apply XP change ───────────────────────────────────────────────
+    if (xpChange !== 0) {
+      const habitData = await db.getFirstAsync(
+        'SELECT name FROM habits WHERE id = ?', [habitId]
+      );
+      const habitName = habitData?.name || `Habit #${habitId}`;
+      const reason    = xpChange > 0
+        ? `${habitName} — ${status}`
+        : `${habitName} — undone`;
+      await awardXP(xpChange, reason);
+    }
+
+    console.log(`✅ CheckIn: habit ${habitId} ${previousStatus || 'new'} → ${status} (XP: ${xpChange > 0 ? '+' : ''}${xpChange})`);
+
   } catch (error) {
     if (error.message.includes('Invalid status') ||
-        error.message.includes('must be under') ||
-        error.message.includes('required')) {
+        error.message.includes('required') ||
+        error.message.includes('under 300')) {
       throw error;
     }
     throw new Error(`Check-in failed: ${error.message}`);
@@ -303,14 +257,15 @@ export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
 };
 
 export const editPastCheckin = async (habitId, date, status, note = null) => {
-  if (!habitId) throw new Error('Habit ID is required');
-  if (!date)    throw new Error('Date is required to edit past check-in');
+  if (!habitId) throw new Error('Habit ID required');
+  if (!date)    throw new Error('Date required to edit past check-in');
 
   const target   = new Date(date);
   const today    = new Date();
   const diffDays = Math.floor((today - target) / 86400000);
+
   if (diffDays > 3) {
-    throw new Error("Can't edit check-ins older than 3 days, Neel — keeping data honest");
+    throw new Error("Can't edit check-ins older than 3 days — keeping data honest");
   }
   if (diffDays < 0) {
     throw new Error("Can't edit future dates");
@@ -321,9 +276,7 @@ export const editPastCheckin = async (habitId, date, status, note = null) => {
     await db.runAsync(
       `INSERT INTO checkins (habit_id, date, status, note, slip_count)
        VALUES (?, ?, ?, ?, 0)
-       ON CONFLICT(habit_id, date) DO UPDATE SET
-         status = excluded.status,
-         note   = excluded.note`,
+       ON CONFLICT(habit_id, date) DO UPDATE SET status = excluded.status, note = excluded.note`,
       [habitId, getDateString(date), status, note]
     );
   } catch (error) {
@@ -335,43 +288,37 @@ export const editPastCheckin = async (habitId, date, status, note = null) => {
 // ── STREAKS ───────────────────────────────────────────────────────────
 
 export const getStreak = async (habitId) => {
-  if (!habitId) throw new Error('Habit ID required for streak');
+  if (!habitId) return { current: 0, longest: 0 };
   try {
     const db    = await getDatabase();
-    const habit = await db.getFirstAsync(
-      'SELECT type FROM habits WHERE id = ?', [habitId]
-    );
+    const habit = await db.getFirstAsync('SELECT type FROM habits WHERE id = ?', [habitId]);
     if (!habit) return { current: 0, longest: 0 };
 
-    const goodStatuses = habit.type === 'build'
-      ? "('done')"
-      : "('resisted')";
+    const goodStatuses = habit.type === 'build' ? "('done')" : "('resisted')";
 
     const rows = await db.getAllAsync(
-      `SELECT date FROM checkins
-       WHERE habit_id = ? AND status IN ${goodStatuses}
-       ORDER BY date DESC`,
+      `SELECT date FROM checkins WHERE habit_id = ? AND status IN ${goodStatuses} ORDER BY date DESC`,
       [habitId]
     );
 
     if (!rows || rows.length === 0) return { current: 0, longest: 0 };
 
-    const today  = getTodayDate();
-    let current  = 0;
-    let longest  = 0;
-    let temp     = 0;
-    let checking = today;
-    let countingCurrent = true;
+    const today    = getTodayDate();
+    let current    = 0;
+    let longest    = 0;
+    let temp       = 0;
+    let checking   = today;
+    let isCurrent  = true;
 
     for (const row of rows) {
       if (row.date === checking) {
         temp++;
-        if (countingCurrent) current++;
+        if (isCurrent) current++;
         const d = new Date(checking);
         d.setDate(d.getDate() - 1);
         checking = d.toISOString().split('T')[0];
       } else {
-        countingCurrent = false;
+        isCurrent = false;
         if (temp > longest) longest = temp;
         temp = 1;
         const d = new Date(row.date);
@@ -383,7 +330,7 @@ export const getStreak = async (habitId) => {
 
     return { current, longest };
   } catch (error) {
-    console.error('getStreak:', error);
+    console.warn('getStreak error:', error.message);
     return { current: 0, longest: 0 };
   }
 };
@@ -391,27 +338,19 @@ export const getStreak = async (habitId) => {
 export const getWeeklyCompletionRate = async (habitId) => {
   if (!habitId) return 0;
   try {
-    const db    = await getDatabase();
-    const today = new Date();
-    const days  = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      days.push(d.toISOString().split('T')[0]);
-    }
+    const db = await getDatabase();
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    const fromDate = sevenDaysAgo.toISOString().split('T')[0];
 
-    const checkins = await db.getAllAsync(
-      `SELECT date, status FROM checkins
-       WHERE habit_id = ? AND date >= ?`,
-      [habitId, days[0]]
+    const done = await db.getFirstAsync(
+      `SELECT COUNT(*) as count FROM checkins
+       WHERE habit_id = ? AND date >= ? AND status IN ('done','resisted')`,
+      [habitId, fromDate]
     );
 
-    const done = checkins.filter(
-      c => c.status === 'done' || c.status === 'resisted'
-    ).length;
-
-    return Math.round((done / 7) * 100);
-  } catch (error) {
+    return Math.round(((done?.count || 0) / 7) * 100);
+  } catch {
     return 0;
   }
 };
@@ -427,8 +366,7 @@ export const getPunishmentLevel = async (habitId) => {
     const fromDate = sevenDaysAgo.toISOString().split('T')[0];
 
     const slips = await db.getFirstAsync(
-      `SELECT COUNT(*) as count FROM checkins
-       WHERE habit_id = ? AND status = 'slip' AND date >= ?`,
+      `SELECT COUNT(*) as count FROM checkins WHERE habit_id = ? AND status = 'slip' AND date >= ?`,
       [habitId, fromDate]
     );
 
@@ -438,47 +376,18 @@ export const getPunishmentLevel = async (habitId) => {
     if (count <= 4)  return 2;
     if (count <= 7)  return 3;
     return 4;
-  } catch (error) {
+  } catch {
     return 0;
-  }
-};
-
-// ── MILESTONES ────────────────────────────────────────────────────────
-
-export const checkAndSaveMilestone = async (habitId, currentStreak) => {
-  const milestones = [3, 7, 14, 21, 30, 48, 60, 75, 90, 180, 365];
-  if (!milestones.includes(currentStreak)) return null;
-
-  try {
-    const db = await getDatabase();
-    const existing = await db.getFirstAsync(
-      'SELECT id FROM milestones WHERE habit_id = ? AND milestone_days = ?',
-      [habitId, currentStreak]
-    );
-    if (existing) return null;
-
-    await db.runAsync(
-      'INSERT INTO milestones (habit_id, milestone_days) VALUES (?, ?)',
-      [habitId, currentStreak]
-    );
-    console.log(`🏆 Milestone: ${currentStreak} days for habit ${habitId}`);
-    return currentStreak;
-  } catch (error) {
-    console.warn('checkAndSaveMilestone:', error.message);
-    return null;
   }
 };
 
 // ── SETTINGS ──────────────────────────────────────────────────────────
 
 export const getSetting = async (key) => {
-  if (!key) throw new Error('Setting key is required');
+  if (!key) throw new Error('Setting key required');
   try {
     const db  = await getDatabase();
-    const row = await db.getFirstAsync(
-      'SELECT value FROM settings WHERE key = ?',
-      [key]
-    );
+    const row = await db.getFirstAsync('SELECT value FROM settings WHERE key = ?', [key]);
     return row?.value ?? null;
   } catch (error) {
     throw new Error(`Couldn't read setting "${key}": ${error.message}`);
@@ -486,9 +395,9 @@ export const getSetting = async (key) => {
 };
 
 export const setSetting = async (key, value) => {
-  if (!key) throw new Error('Setting key is required');
+  if (!key) throw new Error('Setting key required');
   if (value === undefined || value === null) {
-    throw new Error(`Setting value for "${key}" cannot be null`);
+    throw new Error(`Value for "${key}" cannot be null`);
   }
   try {
     const db = await getDatabase();
@@ -527,42 +436,42 @@ export const getOverallStats = async () => {
     const db    = await getDatabase();
     const today = getTodayDate();
 
-    const totalHabits = await db.getFirstAsync(
-      "SELECT COUNT(*) as count FROM habits WHERE is_active = 1"
-    );
-    const todayDone = await db.getFirstAsync(
-      "SELECT COUNT(*) as count FROM checkins WHERE date = ? AND status IN ('done','resisted')",
-      [today]
-    );
-    const totalXP = await getTotalXP();
+    const [totalHabits, todayDone, totalXPVal] = await Promise.all([
+      db.getFirstAsync("SELECT COUNT(*) as count FROM habits WHERE is_active = 1"),
+      db.getFirstAsync(
+        "SELECT COUNT(*) as count FROM checkins WHERE date = ? AND status IN ('done','resisted')",
+        [today]
+      ),
+      getTotalXP(),
+    ]);
 
     return {
       totalHabits: totalHabits?.count || 0,
       todayDone:   todayDone?.count   || 0,
-      totalXP,
+      totalXP:     totalXPVal,
     };
-  } catch (error) {
+  } catch {
     return { totalHabits: 0, todayDone: 0, totalXP: 0 };
   }
 };
 
-// ── EXPORT / IMPORT ───────────────────────────────────────────────────
+// ── EXPORT ────────────────────────────────────────────────────────────
 
 export const exportAllData = async () => {
   try {
-    const db         = await getDatabase();
-    const habits     = await db.getAllAsync('SELECT * FROM habits');
-    const checkins   = await db.getAllAsync('SELECT * FROM checkins');
-    const settings   = await db.getAllAsync('SELECT * FROM settings');
-    const milestones = await db.getAllAsync('SELECT * FROM milestones');
+    const db = await getDatabase();
+    const [habits, checkins, settings, milestones, xpLog] = await Promise.all([
+      db.getAllAsync('SELECT * FROM habits'),
+      db.getAllAsync('SELECT * FROM checkins'),
+      db.getAllAsync('SELECT * FROM settings'),
+      db.getAllAsync('SELECT * FROM milestones'),
+      db.getAllAsync('SELECT * FROM xp_log'),
+    ]);
 
     return {
-      version:     1,
+      version:     2,
       exported_at: new Date().toISOString(),
-      habits,
-      checkins,
-      settings,
-      milestones,
+      habits, checkins, settings, milestones, xpLog,
     };
   } catch (error) {
     throw new Error(`Export failed: ${error.message}`);
