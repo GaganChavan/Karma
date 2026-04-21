@@ -1,268 +1,205 @@
-// ─── KARMA APP — SPLASH SCREEN ──────────────────────────────────────
-// Animated Karma wheel + Sanskrit text.
-// Loads the database while displaying animation.
-// Supports customizable background image from settings.
+// ─── KARMA APP — SPLASH SCREEN (PHASE 6) ─────────────────────────────
+// Apple-quality launch screen. True black. Gold Karma wheel.
+// Minimal. Purposeful. Every element earns its place.
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, Animated, StyleSheet, StatusBar,
-  Image, ImageBackground, Dimensions,
+  View, Text, Animated, StyleSheet,
+  StatusBar, Dimensions, Image,
 } from 'react-native';
-import { Colors } from '../constants/colors';
-import { getDatabase } from '../database/database';
-import { getSetting }   from '../database/habitService';
+import { Colors, Typography } from '../constants/colors';
+import { getDatabase }        from '../database/database';
+import { getSetting }         from '../database/habitService';
 
 const { width, height } = Dimensions.get('window');
 
 const SplashScreen = ({ onReady }) => {
-  const spinAnim    = useRef(new Animated.Value(0)).current;
-  const fadeAnim    = useRef(new Animated.Value(0)).current;
-  const scaleAnim   = useRef(new Animated.Value(0.8)).current;
-  const textFade    = useRef(new Animated.Value(0)).current;
-
-  const [splashImageUri,  setSplashImageUri]  = useState(null);
-  const [splashImageType, setSplashImageType] = useState('default');
-  const [error,           setError]           = useState(null);
+  const wheelSpin  = useRef(new Animated.Value(0)).current;
+  const masterFade = useRef(new Animated.Value(0)).current;
+  const logoScale  = useRef(new Animated.Value(0.7)).current;
+  const textSlide  = useRef(new Animated.Value(20)).current;
+  const [error,    setError]    = useState(null);
+  const [customBg, setCustomBg] = useState(null);
 
   useEffect(() => {
-    _startAnimations();
-    _initializeApp();
+    _animate();
+    _init();
   }, []);
 
-  const _startAnimations = () => {
-    // Spin the Karma wheel continuously
+  const _animate = () => {
+    // Continuous wheel spin
     Animated.loop(
-      Animated.timing(spinAnim, {
-        toValue:         1,
-        duration:        6000,
-        useNativeDriver: true,
+      Animated.timing(wheelSpin, {
+        toValue: 1, duration: 5000, useNativeDriver: true,
       })
     ).start();
 
-    // Fade in main content
+    // Fade + scale entry
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue:         1,
-        duration:        800,
-        useNativeDriver: true,
+      Animated.timing(masterFade, {
+        toValue: 1, duration: 700,
+        delay: 100, useNativeDriver: true,
       }),
-      Animated.spring(scaleAnim, {
-        toValue:         1,
-        tension:         50,
-        friction:        7,
-        useNativeDriver: true,
+      Animated.spring(logoScale, {
+        toValue: 1, tension: 40, friction: 7,
+        delay: 100, useNativeDriver: true,
+      }),
+      Animated.timing(textSlide, {
+        toValue: 0, duration: 500,
+        delay: 300, useNativeDriver: true,
       }),
     ]).start();
-
-    // Text fades in after wheel
-    setTimeout(() => {
-      Animated.timing(textFade, {
-        toValue:         1,
-        duration:        600,
-        useNativeDriver: true,
-      }).start();
-    }, 400);
   };
 
-  const _initializeApp = async () => {
+  const _init = async () => {
     try {
-      // Initialize database (this creates all tables)
       await getDatabase();
-
-      // Load splash image preference
       try {
-        const imageUri  = await getSetting('splash_image_uri');
-        const imageType = await getSetting('splash_image_type');
-        setSplashImageUri(imageUri  || null);
-        setSplashImageType(imageType || 'default');
-      } catch {
-        // Non-fatal — use default
-      }
-
-      // Minimum splash duration for branding
-      await new Promise(resolve => setTimeout(resolve, 2200));
-
-      // Navigate to main app
-      onReady && onReady();
-
+        const uri  = await getSetting('splash_image_uri');
+        const type = await getSetting('splash_image_type');
+        if (type === 'custom' && uri) setCustomBg(uri);
+      } catch {}
+      await new Promise(r => setTimeout(r, 2000));
+      onReady?.();
     } catch (err) {
-      console.error('❌ App initialization failed:', err);
-      setError(err.message || 'Failed to initialize Karma. Please restart.');
+      setError(err.message || 'Failed to start Karma');
     }
   };
 
-  const spin = spinAnim.interpolate({
-    inputRange:  [0, 1],
-    outputRange: ['0deg', '360deg'],
+  const spin = wheelSpin.interpolate({
+    inputRange: [0, 1], outputRange: ['0deg', '360deg'],
   });
-
-  const BackgroundWrapper = ({ children }) => {
-    if (splashImageType === 'custom' && splashImageUri) {
-      return (
-        <ImageBackground
-          source={{ uri: splashImageUri }}
-          style={styles.container}
-          resizeMode="cover"
-        >
-          <View style={styles.container}>
-          </View>
-          
-          {children}
-        </ImageBackground>
-      );
-    }
-    return (
-      <View style={styles.container}>
-        {children}
-      </View>
-    );
-  };
 
   if (error) {
     return (
-      <View style={[styles.container, styles.errorContainer]}>
+      <View style={styles.errorScreen}>
+        <StatusBar barStyle="light-content" backgroundColor="#000" />
         <Text style={styles.errorIcon}>⚠️</Text>
-        <Text style={styles.errorTitle}>Karma couldn't start</Text>
-        <Text style={styles.errorMessage}>{error}</Text>
+        <Text style={styles.errorTitle}>Couldn't start Karma</Text>
+        <Text style={styles.errorMsg}>{error}</Text>
         <Text style={styles.errorHint}>Please restart the app</Text>
       </View>
     );
   }
 
   return (
-    <BackgroundWrapper>
-      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+    <View style={styles.screen}>
+      <StatusBar barStyle="light-content" backgroundColor="#000" translucent />
 
-      {/* Cosmic rings */}
-      {[220, 170, 120, 70].map((size, i) => (
+      {/* Custom background image if set */}
+      {customBg && (
+        <Image
+          source={{ uri: customBg }}
+          style={StyleSheet.absoluteFillObject}
+          resizeMode="cover"
+        />
+      )}
+
+      {/* Subtle vignette overlay */}
+      {customBg && <View style={styles.vignette} />}
+
+      {/* Very subtle concentric rings */}
+      {[200, 150, 100].map((s, i) => (
         <View key={i} style={[styles.ring, {
-          width: size, height: size, borderRadius: size / 2,
-          borderColor: `rgba(30,127,255,${0.04 + i * 0.03})`,
-          position: 'absolute',
+          width: s, height: s, borderRadius: s / 2,
+          opacity: 0.04 + i * 0.02,
         }]} />
       ))}
 
       <Animated.View style={[styles.content, {
-        opacity:   fadeAnim,
-        transform: [{ scale: scaleAnim }],
+        opacity:   masterFade,
+        transform: [{ scale: logoScale }],
       }]}>
-
-        {/* Spinning Karma Wheel */}
+        {/* Spinning wheel */}
         <Animated.Text style={[styles.wheel, { transform: [{ rotate: spin }] }]}>
           ☸
         </Animated.Text>
 
-        {/* App Name */}
-        <Animated.View style={{ opacity: textFade }}>
+        {/* App name */}
+        <Animated.View style={{ transform: [{ translateY: textSlide }], alignItems: 'center' }}>
           <Text style={styles.appName}>KARMA</Text>
           <Text style={styles.sanskrit}>कर्म ही पूजा है</Text>
-          <Text style={styles.translation}>Action is worship</Text>
-
           <View style={styles.divider} />
-
-          <Text style={styles.welcome}>WELCOME BACK, NEEL</Text>
+          <Text style={styles.tagline}>Discipline. Identity. Consistency.</Text>
         </Animated.View>
       </Animated.View>
 
-      {/* Bottom branding */}
-      <Animated.Text style={[styles.version, { opacity: textFade }]}>
-        karma v1.0
+      {/* Version — bottom */}
+      <Animated.Text style={[styles.version, { opacity: masterFade }]}>
+        karma · v1.0
       </Animated.Text>
-    </BackgroundWrapper>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex:            1,
-    alignItems:      'center',
-    justifyContent:  'center',
-    backgroundColor: Colors.background,
+  screen: {
+    flex:           1,
+    backgroundColor: '#000',
+    alignItems:     'center',
+    justifyContent: 'center',
   },
-  errorContainer: {
-    backgroundColor: Colors.background,
-    padding:         32,
+  vignette: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
   ring: {
+    position:   'absolute',
     borderWidth: 1,
-    position:    'absolute',
+    borderColor: Colors.gold,
   },
-  content: {
-    alignItems: 'center',
-  },
+  content:  { alignItems: 'center', gap: 20 },
   wheel: {
-    fontSize:    80,
-    marginBottom: 16,
-    color:       Colors.blue,
-    textShadowColor:  Colors.blue,
+    fontSize:         88,
+    color:            Colors.gold,
+    textShadowColor:  Colors.gold,
     textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 24,
+    textShadowRadius: 28,
   },
   appName: {
-    fontSize:     40,
-    fontWeight:   'bold',
-    color:        Colors.textPrimary,
-    letterSpacing: 10,
-    textAlign:    'center',
+    fontSize:     44,
+    fontWeight:   '700',
+    color:        Colors.white,
+    letterSpacing: 14,
     marginBottom:  8,
   },
   sanskrit: {
     fontSize:     16,
-    color:        Colors.blue,
+    color:        Colors.gold,
     letterSpacing: 3,
-    textAlign:    'center',
-    marginBottom:  4,
-  },
-  translation: {
-    fontSize:  12,
-    color:     Colors.textMuted,
-    textAlign: 'center',
-    letterSpacing: 1,
+    marginBottom:  16,
+    opacity:       0.85,
   },
   divider: {
-    width:         60,
-    height:         1,
-    backgroundColor: Colors.borderBlue,
-    marginVertical:  20,
-    alignSelf:       'center',
+    width:           48,
+    height:           1,
+    backgroundColor: 'rgba(245,166,35,0.3)',
+    marginBottom:    16,
   },
-  welcome: {
-    fontSize:     11,
-    color:        Colors.textDim,
-    letterSpacing: 4,
-    textAlign:    'center',
+  tagline: {
+    fontSize:     13,
+    color:        Colors.textMuted,
+    letterSpacing: 2,
   },
   version: {
     position:      'absolute',
-    bottom:         40,
-    fontSize:       11,
+    bottom:         44,
+    fontSize:       12,
     color:          Colors.textDim,
-    letterSpacing:  2,
+    letterSpacing:  1,
   },
-  errorIcon: {
-    fontSize:    48,
-    textAlign:   'center',
-    marginBottom: 16,
+  errorScreen: {
+    flex:           1,
+    backgroundColor: '#000',
+    alignItems:     'center',
+    justifyContent: 'center',
+    padding:        32,
+    gap:            12,
   },
-  errorTitle: {
-    fontSize:    20,
-    color:       Colors.textPrimary,
-    fontWeight:  'bold',
-    textAlign:   'center',
-    marginBottom: 12,
-  },
-  errorMessage: {
-    fontSize:    13,
-    color:       Colors.red,
-    textAlign:   'center',
-    marginBottom: 12,
-    lineHeight:  20,
-  },
-  errorHint: {
-    fontSize:  12,
-    color:     Colors.textMuted,
-    textAlign: 'center',
-  },
+  errorIcon:  { fontSize: 48 },
+  errorTitle: { fontSize: 20, color: Colors.white, fontWeight: '700' },
+  errorMsg:   { fontSize: 14, color: Colors.red, textAlign: 'center' },
+  errorHint:  { fontSize: 13, color: Colors.textDim },
 });
 
 export default SplashScreen;

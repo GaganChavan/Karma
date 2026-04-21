@@ -1,14 +1,12 @@
-// ─── KARMA APP — PLACEHOLDER SCREENS (PHASE 5 UPDATE) ───────────────
-// StatsScreen removed — now has full implementation.
-// HabitsScreen and SettingsScreen still placeholder — Phase 7.
+// ─── KARMA APP — PLACEHOLDER SCREENS (PHASE 6) ───────────────────────
 
 import React from 'react';
-import { View, Text, StyleSheet, StatusBar, TouchableOpacity } from 'react-native';
-import { Colors } from '../constants/colors';
+import { View, Text, StyleSheet, StatusBar } from 'react-native';
+import { Colors, Typography, Spacing } from '../constants/colors';
 
 const PlaceholderScreen = ({ title, icon, subtitle, phase }) => (
-  <View style={styles.container}>
-    <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
+  <View style={styles.screen}>
+    <StatusBar barStyle="light-content" backgroundColor="#000" />
     <Text style={styles.icon}>{icon}</Text>
     <Text style={styles.title}>{title}</Text>
     <Text style={styles.subtitle}>{subtitle}</Text>
@@ -20,7 +18,7 @@ export const HabitsScreen = () => (
   <PlaceholderScreen
     icon="✅"
     title="All Habits"
-    subtitle="Manage, reorder, and view all your habits in one place."
+    subtitle="Manage, reorder, and archive your habits."
     phase="7"
   />
 );
@@ -29,22 +27,22 @@ export const SettingsScreen = () => (
   <PlaceholderScreen
     icon="⚙️"
     title="Settings"
-    subtitle="Notifications, alter ego, theme, backup, and more."
+    subtitle="Theme, notifications, alter ego, backup."
     phase="7"
   />
 );
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex:            1,
     backgroundColor: Colors.background,
     alignItems:      'center',
     justifyContent:  'center',
-    padding:         32,
-    gap:             10,
+    padding:         Spacing.xxxl,
+    gap:             Spacing.md,
   },
   icon:     { fontSize: 56 },
-  title:    { fontSize: 22, color: Colors.textPrimary, fontWeight: 'bold' },
-  subtitle: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 20 },
-  phase:    { fontSize: 12, color: Colors.blue, marginTop: 8, letterSpacing: 1 },
+  title:    { ...Typography.title2, color: Colors.textPrimary },
+  subtitle: { ...Typography.body, color: Colors.textMuted, textAlign: 'center', lineHeight: 24 },
+  phase:    { ...Typography.footnote, color: Colors.gold, marginTop: Spacing.md, letterSpacing: 1 },
 });
