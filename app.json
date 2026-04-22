@@ -51,7 +51,8 @@
         {
           "photosPermission": "Karma needs photo access to set your custom splash image."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "extra": {
       "eas": {

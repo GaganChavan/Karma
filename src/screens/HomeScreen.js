@@ -1,6 +1,8 @@
-// ─── KARMA APP — HOME SCREEN (PHASE 6 — APPLE QUALITY) ──────────────
-// Inspired by Apple Fitness + Zerodha's data clarity.
-// True black base. Gold accents. Large readable text. No noise.
+// ─── KARMA APP — HOME SCREEN (GITA PHASE A) ──────────────────────────
+// Gita shlokas replace generic quotes.
+// Krishna voice throughout.
+// WhatsApp share button.
+// Chariot metaphor in empty state.
 
 import React, { useState, useCallback, useRef } from 'react';
 import {
@@ -12,15 +14,19 @@ import { useFocusEffect }   from '@react-navigation/native';
 import { SafeAreaView }     from 'react-native-safe-area-context';
 import { Colors, Spacing, Radius, Typography } from '../constants/colors';
 import { DateUtils }        from '../utils/dateUtils';
-import { getTodaySlogan }   from '../constants/slogans';
+import { getGreetingShloka } from '../constants/shlokas';
+import ShlokaDisplay         from '../components/ShlokaDisplay';
 import {
   getAllHabits, getTodayCheckins, checkIn,
-  getStreak, getSetting, getOverallStats, getPunishmentLevel,
+  getStreak, getSetting, getPunishmentLevel,
 } from '../database/habitService';
 import {
   getFullStats, awardPerfectDayIfEligible,
   checkAndAwardStreakFreeze, checkMilestone,
 } from '../services/gamificationService';
+import {
+  sendDailyWhatsApp, shouldShowDailyPrompt,
+} from '../services/whatsappService';
 
 const PUNISH_COLORS = [
   Colors.gold, Colors.orange,
@@ -37,15 +43,12 @@ const HomeScreen = ({ navigation }) => {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error,      setError]      = useState(null);
+  const [showWA,     setShowWA]     = useState(false);
 
-  const slogan = getTodaySlogan();
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const shloka   = getGreetingShloka();
 
-  useFocusEffect(
-    useCallback(() => {
-      _loadData();
-    }, [])
-  );
+  useFocusEffect(useCallback(() => { _loadData(); }, []));
 
   const _loadData = async (isRefresh = false) => {
     try {
@@ -79,15 +82,13 @@ const HomeScreen = ({ navigation }) => {
       setPunishment(punishMap);
       setGamStats(gam);
       setAlterEgo(ego || 'Neel');
+      setShowWA(shouldShowDailyPrompt());
 
-      // Animate in
-      Animated.timing(fadeAnim, {
-        toValue: 1, duration: 400, useNativeDriver: true,
-      }).start();
-
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
       try { await checkAndAwardStreakFreeze(); } catch {}
+
     } catch (err) {
-      setError(err.message || 'Failed to load');
+      setError(err.message || 'The chariot could not start. Pull the reins and retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -106,26 +107,31 @@ const HomeScreen = ({ navigation }) => {
         Alert.alert('Error', err.message);
       }
     } else {
-      Alert.alert(habit.name, 'Quick check-in', [
-        {
-          text: '✊ Resisted',
-          onPress: async () => {
-            try { await checkIn(habit.id, 'resisted'); await _afterCheckIn(habit.id); }
-            catch (err) { Alert.alert('Error', err.message); }
+      Alert.alert(
+        habit.name,
+        'The horse bolted — or did the rein hold?',
+        [
+          {
+            text: '✊ The rein held',
+            onPress: async () => {
+              try { await checkIn(habit.id, 'resisted'); await _afterCheckIn(habit.id); }
+              catch (err) { Alert.alert('Error', err.message); }
+            },
           },
-        },
-        {
-          text: '😔 Slipped', style: 'destructive',
-          onPress: async () => {
-            try {
-              const slips = c?.slip_count || 0;
-              await checkIn(habit.id, 'slip', null, slips + 1);
-              await _loadData();
-            } catch (err) { Alert.alert('Error', err.message); }
+          {
+            text: '😔 The horse bolted',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                const slips = c?.slip_count || 0;
+                await checkIn(habit.id, 'slip', null, slips + 1);
+                await _loadData();
+              } catch (err) { Alert.alert('Error', err.message); }
+            },
           },
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]);
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
     }
   };
 
@@ -135,33 +141,60 @@ const HomeScreen = ({ navigation }) => {
       const s   = await getStreak(habitId);
       const hit = await checkMilestone(habitId, s.current);
       if (hit) {
-        Alert.alert(`${hit.badge} ${hit.title}`, `${hit.desc}\n\n+${hit.xp} Karma XP`, [{ text: '🔱 Amazing' }]);
+        const { getShloka, getMilestoneContext } = require('../constants/shlokas');
+        const ms = getShloka(getMilestoneContext(hit.days));
+        Alert.alert(
+          `${hit.badge} ${hit.title}`,
+          `${hit.desc}\n\n+${hit.xp} Karma XP\n\n${ms.sanskrit}\n"${ms.meaning}"\n— ${ms.reference}`,
+          [{ text: '🔱 jai ho' }]
+        );
       }
     } catch {}
+
     try {
       const perfect = await awardPerfectDayIfEligible();
       if (perfect) {
         const gam = await getFullStats();
-        navigation.navigate('Celebration', { xpEarned: gam.totalXP, perfectDay: true, alterEgo });
+        navigation.navigate('Celebration', {
+          xpEarned: gam.totalXP, perfectDay: true, alterEgo,
+        });
         return;
       }
     } catch {}
 
-    // All habits done?
-    const all    = await getAllHabits();
-    const today  = await getTodayCheckins();
-    const done   = today.filter(c => c.status === 'done' || c.status === 'resisted').length;
+    const all   = await getAllHabits();
+    const today = await getTodayCheckins();
+    const done  = today.filter(c => c.status === 'done' || c.status === 'resisted').length;
     if (done === all.length && all.length > 0) {
       const gam = await getFullStats();
-      navigation.navigate('Celebration', { xpEarned: gam.totalXP, perfectDay: false, alterEgo });
+      navigation.navigate('Celebration', {
+        xpEarned: gam.totalXP, perfectDay: false, alterEgo,
+      });
+    }
+  };
+
+  const _shareWhatsApp = async () => {
+    try {
+      await sendDailyWhatsApp({
+        alterEgo,
+        habits,
+        checkins,
+        streaks,
+        totalXP:   gamStats?.totalXP || 0,
+        todayXP:   10,
+        karmaScore: gamStats?.karmaScore || 0,
+        levelInfo:  gamStats?.levelInfo,
+      });
+    } catch (err) {
+      Alert.alert('Error', err.message);
     }
   };
 
   // ── Computed ──────────────────────────────────────────────────────
 
-  const buildHabits = habits.filter(h => h.type === 'build');
-  const breakHabits = habits.filter(h => h.type === 'break');
-  const doneToday   = habits.filter(h => {
+  const buildHabits   = habits.filter(h => h.type === 'build');
+  const breakHabits   = habits.filter(h => h.type === 'break');
+  const doneToday     = habits.filter(h => {
     const c = checkins[h.id];
     return c?.status === 'done' || c?.status === 'resisted';
   }).length;
@@ -169,14 +202,15 @@ const HomeScreen = ({ navigation }) => {
     const s = streaks[h.id]?.current || 0;
     return s > max ? s : max;
   }, 0);
-  const progressPct = habits.length > 0 ? doneToday / habits.length : 0;
-  const allDone     = habits.length > 0 && doneToday === habits.length;
+  const allDone = habits.length > 0 && doneToday === habits.length;
 
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : hour < 21 ? 'Good Evening' : 'Good Night';
-  const greetEmoji = hour < 12 ? '🌅' : hour < 17 ? '☀️' : hour < 21 ? '🌙' : '🌌';
+  const hour      = new Date().getHours();
+  const greeting  = hour < 5  ? 'Brahma Muhurta' :
+                    hour < 12 ? 'Good Morning' :
+                    hour < 17 ? 'Good Afternoon' :
+                    hour < 21 ? 'Good Evening' : 'Good Night';
 
-  // ── Habit Card ────────────────────────────────────────────────────
+  // ── Habit card ────────────────────────────────────────────────────
 
   const _card = (habit) => {
     const c           = checkins[habit.id];
@@ -200,12 +234,10 @@ const HomeScreen = ({ navigation }) => {
         delayLongPress={350}
         activeOpacity={0.7}
       >
-        {/* Icon */}
         <View style={[styles.habitIconWrap, { backgroundColor: accentColor + '20' }]}>
           <Text style={styles.habitEmoji}>{habit.icon}</Text>
         </View>
 
-        {/* Info */}
         <View style={styles.habitInfo}>
           <Text style={[styles.habitName,
             (isMissed || isSkipped) && { color: Colors.textMuted }
@@ -214,22 +246,23 @@ const HomeScreen = ({ navigation }) => {
           </Text>
           <Text style={[styles.habitMeta, { color: isDone ? accentColor : Colors.textDim }]}>
             {habit.type === 'build'
-              ? streak.current > 0 ? `${streak.current} day streak 🔥` : 'Start your streak'
-              : streak.current > 0 ? `${streak.current} days clean ✊` : 'Start clean today'
+              ? streak.current > 0
+                ? `${streak.current} day streak 🪔`
+                : 'The rein is untested — begin'
+              : streak.current > 0
+                ? `${streak.current} days — the rein held ✊`
+                : 'The horse awaits — hold the rein today'
             }
-            {isSkipped && '  ·  Skipped today'}
-            {isMissed  && '  ·  Missed today'}
+            {isSkipped && '  ·  skipped'}
+            {isMissed  && '  ·  missed today'}
           </Text>
         </View>
 
-        {/* Check mark */}
         <View style={[styles.checkWrap,
           isDone && { backgroundColor: accentColor, borderColor: accentColor },
         ]}>
           {isDone && <Text style={styles.checkIcon}>✓</Text>}
         </View>
-
-        {/* Arrow */}
         <Text style={styles.arrow}>›</Text>
       </TouchableOpacity>
     );
@@ -241,8 +274,9 @@ const HomeScreen = ({ navigation }) => {
     return (
       <View style={styles.loadScreen}>
         <StatusBar barStyle="light-content" backgroundColor="#000" />
+        <Text style={styles.wheel}>☸</Text>
         <ActivityIndicator size="large" color={Colors.gold} />
-        <Text style={styles.loadText}>Loading karma...</Text>
+        <Text style={styles.loadText}>The chariot is readying...</Text>
       </View>
     );
   }
@@ -254,7 +288,7 @@ const HomeScreen = ({ navigation }) => {
         <Text style={styles.errIcon}>⚠️</Text>
         <Text style={styles.errText}>{error}</Text>
         <TouchableOpacity style={styles.retryBtn} onPress={() => _loadData()}>
-          <Text style={styles.retryText}>Try Again</Text>
+          <Text style={styles.retryText}>Pull the reins — Try again</Text>
         </TouchableOpacity>
       </View>
     );
@@ -276,89 +310,80 @@ const HomeScreen = ({ navigation }) => {
           />
         }
       >
-        {/* ── Header ── */}
+        {/* Header */}
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerLeft}>
             <Text style={styles.headerDate}>
               {DateUtils.getDayOfWeek().toUpperCase()} · {DateUtils.formatDate(DateUtils.today())}
             </Text>
             <Text style={styles.headerGreeting}>
-              {greeting}, <Text style={{ color: Colors.gold }}>{alterEgo}</Text> {greetEmoji}
+              {greeting},{' '}
+              <Text style={{ color: Colors.gold }}>{alterEgo}</Text>
             </Text>
-            <Text style={styles.headerSanskrit}>कर्म ही पूजा है</Text>
+            <Text style={styles.headerSub}>
+              The battlefield is ready.
+            </Text>
           </View>
-
-          {/* Level pill */}
           {gamStats?.levelInfo && (
             <View style={[styles.levelPill, { borderColor: gamStats.levelInfo.color + '50' }]}>
-              <Text style={styles.levelPillIcon}>{gamStats.levelInfo.icon}</Text>
-              <Text style={[styles.levelPillText, { color: gamStats.levelInfo.color }]}>
+              <Text style={styles.levelIcon}>{gamStats.levelInfo.icon}</Text>
+              <Text style={[styles.levelText, { color: gamStats.levelInfo.color }]}>
                 {gamStats.levelInfo.title}
               </Text>
             </View>
           )}
         </View>
 
-        {/* ── Hero Stats Card ── */}
+        {/* Hero stats */}
         <View style={styles.heroCard}>
-          {/* Streak */}
-          <View style={styles.heroLeft}>
+          <View style={styles.heroSection}>
             <Text style={styles.heroLabel}>STREAK</Text>
             <Text style={styles.heroStreak}>
               {overallStreak}
-              {overallStreak > 0 && <Text style={styles.heroFlame}> 🔥</Text>}
+              {overallStreak > 0 && <Text style={{ fontSize: 30 }}> 🪔</Text>}
             </Text>
             <Text style={styles.heroSub}>
-              {overallStreak > 0 ? `${overallStreak} days unbroken` : 'Start today'}
+              {overallStreak > 0
+                ? `${overallStreak} days — the rein holds`
+                : 'The rein awaits your grip'
+              }
             </Text>
           </View>
 
-          {/* Divider */}
           <View style={styles.heroDivider} />
 
-          {/* Progress */}
-          <View style={styles.heroRight}>
+          <View style={styles.heroSection}>
             <Text style={styles.heroLabel}>TODAY</Text>
-            {/* Progress ring — clean Apple style */}
-            <View style={styles.ringOuter}>
-              <View style={[styles.ringInner, {
-                borderColor: allDone ? Colors.green : Colors.gold,
-              }]} />
-              <View style={styles.ringCenter}>
-                <Text style={[styles.ringNum, {
-                  color: allDone ? Colors.green : Colors.gold,
-                }]}>
-                  {doneToday}
-                </Text>
-                <Text style={styles.ringDen}>/{habits.length}</Text>
-              </View>
+            <View style={styles.progressRing}>
+              <Text style={[styles.progressNum, {
+                color: allDone ? Colors.green : Colors.gold,
+              }]}>
+                {doneToday}
+              </Text>
+              <Text style={styles.progressDen}>/{habits.length}</Text>
             </View>
             <Text style={[styles.heroSub, { textAlign: 'center' }]}>
-              {allDone ? '✓ All done!' : 'habits done'}
+              {allDone ? '☸ All battles won' : 'battles won'}
             </Text>
           </View>
 
-          {/* Karma score */}
-          {gamStats && (
-            <>
-              <View style={styles.heroDivider} />
-              <View style={styles.heroKarma}>
-                <Text style={styles.heroLabel}>KARMA</Text>
-                <Text style={styles.heroKarmaNum}>{gamStats.karmaScore}</Text>
-                <Text style={styles.heroSub}>/1000</Text>
-              </View>
-            </>
-          )}
+          <View style={styles.heroDivider} />
+
+          <View style={styles.heroSection}>
+            <Text style={styles.heroLabel}>KARMA</Text>
+            <Text style={styles.karmaNum}>{gamStats?.karmaScore || 0}</Text>
+            <Text style={styles.heroSub}>/1000</Text>
+          </View>
         </View>
 
-        {/* ── XP Bar ── */}
+        {/* XP bar */}
         {gamStats?.levelInfo && (
           <View style={styles.xpSection}>
             <View style={styles.xpRow}>
               <Text style={styles.xpText}>⚡ {gamStats.totalXP} XP</Text>
               {gamStats.levelInfo.nextLevel && (
                 <Text style={styles.xpNext}>
-                  Next: {gamStats.levelInfo.nextLevel.icon} {gamStats.levelInfo.nextLevel.title}
+                  → {gamStats.levelInfo.nextLevel.icon} {gamStats.levelInfo.nextLevel.title}
                 </Text>
               )}
             </View>
@@ -371,47 +396,65 @@ const HomeScreen = ({ navigation }) => {
           </View>
         )}
 
-        {/* ── Slogan ── */}
-        <View style={styles.sloganRow}>
-          <Text style={styles.sloganWheel}>☸</Text>
-          <Text style={styles.sloganText}>"{slogan}"</Text>
+        {/* Daily Shloka */}
+        <View style={styles.shlokaPad}>
+          <ShlokaDisplay shloka={shloka} variant="card" />
         </View>
 
-        {/* ── Build Habits ── */}
+        {/* Build Habits */}
         {buildHabits.length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>BUILD</Text>
+            <Text style={styles.sectionTitle}>BUILD — DHARMA OF THE DAY</Text>
             {buildHabits.map(_card)}
           </>
         )}
 
-        {/* ── Break Habits ── */}
+        {/* Break Habits */}
         {breakHabits.length > 0 && (
           <>
-            <Text style={[styles.sectionTitle, { color: Colors.red }]}>BREAK</Text>
+            <Text style={[styles.sectionTitle, { color: Colors.red + 'CC' }]}>
+              BREAK — HOLD THE REIN
+            </Text>
             {breakHabits.map(_card)}
           </>
         )}
 
-        {/* ── Empty State ── */}
+        {/* Empty state — chariot metaphor */}
         {habits.length === 0 && (
           <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>🌌</Text>
-            <Text style={styles.emptyTitle}>No habits yet, {alterEgo}</Text>
+            <Text style={styles.emptyWheel}>☸</Text>
+            <Text style={styles.emptyTitle}>
+              The chariot is ready, {alterEgo}
+            </Text>
             <Text style={styles.emptySub}>
-              Tap + to begin building your karma.
+              The horses wait. The reins are in your hands.{'\n'}
+              Add your first habit — and the battle begins.
             </Text>
             <TouchableOpacity
               style={styles.emptyBtn}
               onPress={() => navigation.navigate('AddHabit')}
             >
-              <Text style={styles.emptyBtnText}>Add First Habit</Text>
+              <Text style={styles.emptyBtnText}>Begin the Sadhana</Text>
             </TouchableOpacity>
           </View>
         )}
 
+        {/* Hints */}
         {habits.length > 0 && (
-          <Text style={styles.hint}>Tap to view details · Hold to quick check-in</Text>
+          <Text style={styles.hint}>
+            Tap to view · Hold for quick check-in
+          </Text>
+        )}
+
+        {/* WhatsApp share — appears after 8 PM */}
+        {showWA && habits.length > 0 && (
+          <TouchableOpacity style={styles.waBtn} onPress={_shareWhatsApp}>
+            <Text style={styles.waBtnIcon}>📱</Text>
+            <View>
+              <Text style={styles.waBtnText}>Send Daily Report</Text>
+              <Text style={styles.waBtnSub}>Share today's karma via WhatsApp</Text>
+            </View>
+          </TouchableOpacity>
         )}
 
         <View style={{ height: 120 }} />
@@ -421,17 +464,19 @@ const HomeScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  screen:       { flex: 1, backgroundColor: Colors.background },
-  scrollContent:{ paddingBottom: 20 },
+  screen:        { flex: 1, backgroundColor: Colors.background },
+  scrollContent: { paddingBottom: 20 },
+
   loadScreen: {
     flex: 1, backgroundColor: Colors.background,
     alignItems: 'center', justifyContent: 'center', gap: 16,
   },
+  wheel:    { fontSize: 48, color: Colors.gold },
   loadText: { ...Typography.subheadline, color: Colors.textMuted },
   errIcon:  { fontSize: 44 },
   errText:  { ...Typography.body, color: Colors.red, textAlign: 'center', paddingHorizontal: 32 },
   retryBtn: {
-    backgroundColor: Colors.gold, paddingHorizontal: 28,
+    backgroundColor: Colors.gold, paddingHorizontal: 24,
     paddingVertical: 13, borderRadius: Radius.lg,
   },
   retryText: { ...Typography.headline, color: '#000' },
@@ -445,9 +490,10 @@ const styles = StyleSheet.create({
     paddingTop:        Spacing.lg,
     paddingBottom:     Spacing.xl,
   },
-  headerDate:     { ...Typography.caption2, color: Colors.textDim, letterSpacing: 1.5, marginBottom: 6 },
-  headerGreeting: { ...Typography.title2, color: Colors.textPrimary, marginBottom: 5 },
-  headerSanskrit: { ...Typography.footnote, color: Colors.gold, opacity: 0.8 },
+  headerLeft:    { flex: 1 },
+  headerDate:    { ...Typography.caption2, color: Colors.textDim, letterSpacing: 1.5, marginBottom: 6 },
+  headerGreeting:{ ...Typography.title2, color: Colors.textPrimary, marginBottom: 4 },
+  headerSub:     { ...Typography.footnote, color: Colors.textDim, fontStyle: 'italic' },
   levelPill: {
     flexDirection:     'row',
     alignItems:        'center',
@@ -458,67 +504,38 @@ const styles = StyleSheet.create({
     paddingVertical:    7,
     backgroundColor:   Colors.backgroundCard,
   },
-  levelPillIcon: { fontSize: 16 },
-  levelPillText: { ...Typography.caption1, fontWeight: '600' },
+  levelIcon: { fontSize: 16 },
+  levelText: { ...Typography.caption1, fontWeight: '600' },
 
-  // Hero Card
+  // Hero card
   heroCard: {
-    flexDirection:   'row',
+    flexDirection:    'row',
     marginHorizontal: Spacing.xl,
-    backgroundColor: Colors.backgroundCard,
-    borderRadius:    Radius.xl,
-    padding:         Spacing.xl,
-    alignItems:      'center',
-    marginBottom:    Spacing.lg,
+    backgroundColor:  Colors.backgroundCard,
+    borderRadius:     Radius.xl,
+    padding:          Spacing.xl,
+    alignItems:       'center',
+    marginBottom:     Spacing.lg,
   },
-  heroLeft:   { flex: 1, alignItems: 'center' },
-  heroRight:  { flex: 1, alignItems: 'center', gap: 8 },
-  heroKarma:  { flex: 0.8, alignItems: 'center' },
-  heroDivider:{ width: 1, height: 60, backgroundColor: Colors.separator, marginHorizontal: 8 },
-  heroLabel: {
-    ...Typography.caption2, color: Colors.textDim,
-    letterSpacing: 2, marginBottom: 6,
-  },
-  heroStreak: {
-    fontSize: 48, fontWeight: '700', color: Colors.gold, lineHeight: 54,
-  },
-  heroFlame:  { fontSize: 36 },
-  heroSub:    { ...Typography.caption1, color: Colors.textDim, marginTop: 4 },
-  heroKarmaNum:{ fontSize: 28, fontWeight: '700', color: Colors.blue },
-
-  // Progress ring
-  ringOuter: {
-    width:          60,
-    height:         60,
-    borderRadius:   30,
-    backgroundColor: Colors.backgroundElevated,
-    alignItems:     'center',
-    justifyContent: 'center',
-    position:       'relative',
-  },
-  ringInner: {
-    position:     'absolute',
-    width:         60,
-    height:        60,
-    borderRadius:  30,
-    borderWidth:    5,
-    borderTopColor:    'transparent',
-    borderRightColor:  'transparent',
-    transform:    [{ rotate: '-45deg' }],
-  },
-  ringCenter: {
+  heroSection:  { flex: 1, alignItems: 'center', gap: 6 },
+  heroDivider:  { width: 1, height: 60, backgroundColor: Colors.separator, marginHorizontal: 8 },
+  heroLabel:    { ...Typography.caption2, color: Colors.textDim, letterSpacing: 2 },
+  heroStreak:   { fontSize: 40, fontWeight: '700', color: Colors.gold, lineHeight: 48 },
+  heroSub:      { ...Typography.caption1, color: Colors.textDim, textAlign: 'center' },
+  karmaNum:     { fontSize: 26, fontWeight: '700', color: Colors.blue },
+  progressRing: {
     flexDirection: 'row',
     alignItems:    'baseline',
-    gap:            1,
+    gap:            2,
   },
-  ringNum: { fontSize: 17, fontWeight: '700' },
-  ringDen: { fontSize: 11, color: Colors.textDim },
+  progressNum: { fontSize: 28, fontWeight: '700' },
+  progressDen: { ...Typography.callout, color: Colors.textDim },
 
   // XP bar
   xpSection: {
     marginHorizontal: Spacing.xl,
     marginBottom:     Spacing.lg,
-    gap:               8,
+    gap:               6,
   },
   xpRow: {
     flexDirection:  'row',
@@ -533,24 +550,15 @@ const styles = StyleSheet.create({
     borderRadius:    Radius.full,
     overflow:        'hidden',
   },
-  xpFill:  { height: '100%', borderRadius: Radius.full },
+  xpFill: { height: '100%', borderRadius: Radius.full },
 
-  // Slogan
-  sloganRow: {
-    flexDirection:   'row',
-    alignItems:      'flex-start',
-    gap:              12,
+  // Shloka
+  shlokaPad: {
     marginHorizontal: Spacing.xl,
-    marginBottom:    Spacing.xl,
-    paddingVertical:  Spacing.lg,
-    borderTopWidth:   1,
-    borderBottomWidth: 1,
-    borderColor:     Colors.separator,
+    marginBottom:     Spacing.xl,
   },
-  sloganWheel:{ fontSize: 18, color: Colors.gold, opacity: 0.6, marginTop: 2 },
-  sloganText: { ...Typography.callout, color: Colors.textMuted, fontStyle: 'italic', flex: 1, lineHeight: 22 },
 
-  // Section title
+  // Section
   sectionTitle: {
     ...Typography.caption2,
     color:            Colors.textDim,
@@ -562,36 +570,29 @@ const styles = StyleSheet.create({
 
   // Habit card
   habitCard: {
-    flexDirection:   'row',
-    alignItems:      'center',
+    flexDirection:    'row',
+    alignItems:       'center',
     marginHorizontal: Spacing.xl,
-    marginBottom:    Spacing.sm + 2,
-    backgroundColor: Colors.backgroundCard,
-    borderRadius:    Radius.lg,
-    borderWidth:      1,
-    borderColor:     Colors.separator,
-    padding:         Spacing.lg,
-    gap:             Spacing.md,
+    marginBottom:     Spacing.sm + 2,
+    backgroundColor:  Colors.backgroundCard,
+    borderRadius:     Radius.lg,
+    borderWidth:       1,
+    borderColor:      Colors.separator,
+    padding:          Spacing.lg,
+    gap:              Spacing.md,
   },
   habitIconWrap: {
-    width:          48,
-    height:         48,
-    borderRadius:   Radius.md,
-    alignItems:     'center',
-    justifyContent: 'center',
+    width: 48, height: 48, borderRadius: Radius.md,
+    alignItems: 'center', justifyContent: 'center',
   },
-  habitEmoji:  { fontSize: 24 },
-  habitInfo:   { flex: 1, gap: 5 },
-  habitName:   { ...Typography.headline, color: Colors.textPrimary },
-  habitMeta:   { ...Typography.caption1, lineHeight: 16 },
+  habitEmoji: { fontSize: 24 },
+  habitInfo:  { flex: 1, gap: 5 },
+  habitName:  { ...Typography.headline, color: Colors.textPrimary },
+  habitMeta:  { ...Typography.caption1, lineHeight: 16 },
   checkWrap: {
-    width:          26,
-    height:         26,
-    borderRadius:   13,
-    borderWidth:     2,
-    borderColor:    Colors.separator,
-    alignItems:     'center',
-    justifyContent: 'center',
+    width: 26, height: 26, borderRadius: 13,
+    borderWidth: 2, borderColor: Colors.separator,
+    alignItems: 'center', justifyContent: 'center',
   },
   checkIcon: { color: '#000', fontSize: 13, fontWeight: '700' },
   arrow:     { color: Colors.textDim, fontSize: 22, fontWeight: '300' },
@@ -599,28 +600,42 @@ const styles = StyleSheet.create({
   // Empty
   empty: {
     alignItems: 'center',
-    paddingHorizontal: 40,
-    paddingVertical:   60,
-    gap: 14,
+    paddingHorizontal: 40, paddingVertical: 60, gap: 14,
   },
-  emptyIcon:  { fontSize: 64 },
-  emptyTitle: { ...Typography.title3, color: Colors.textSecondary, textAlign: 'center' },
-  emptySub:   { ...Typography.body, color: Colors.textDim, textAlign: 'center', lineHeight: 24 },
+  emptyWheel:  { fontSize: 64, color: Colors.gold, opacity: 0.4 },
+  emptyTitle:  { ...Typography.title3, color: Colors.textSecondary, textAlign: 'center' },
+  emptySub: {
+    ...Typography.body, color: Colors.textDim,
+    textAlign: 'center', lineHeight: 26,
+  },
   emptyBtn: {
     backgroundColor:  Colors.gold,
-    paddingHorizontal: 28,
-    paddingVertical:   14,
-    borderRadius:     Radius.lg,
-    marginTop:         4,
+    paddingHorizontal: 28, paddingVertical: 14,
+    borderRadius:     Radius.lg, marginTop: 4,
   },
   emptyBtnText: { ...Typography.headline, color: '#000' },
 
   hint: {
-    ...Typography.caption2,
-    color:     Colors.textDim,
-    textAlign: 'center',
-    marginTop: Spacing.lg,
+    ...Typography.caption2, color: Colors.textDim,
+    textAlign: 'center', marginTop: Spacing.lg,
   },
+
+  // WhatsApp button
+  waBtn: {
+    flexDirection:    'row',
+    alignItems:       'center',
+    gap:              Spacing.md,
+    marginHorizontal: Spacing.xl,
+    marginTop:        Spacing.lg,
+    backgroundColor:  'rgba(37,211,102,0.10)',
+    borderRadius:     Radius.lg,
+    borderWidth:       1,
+    borderColor:      'rgba(37,211,102,0.25)',
+    padding:          Spacing.lg,
+  },
+  waBtnIcon: { fontSize: 28 },
+  waBtnText: { ...Typography.callout, color: '#25D166', fontWeight: '600' },
+  waBtnSub:  { ...Typography.caption1, color: Colors.textDim, marginTop: 2 },
 });
 
 export default HomeScreen;

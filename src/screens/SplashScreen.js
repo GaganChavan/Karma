@@ -1,25 +1,26 @@
-// ─── KARMA APP — SPLASH SCREEN (PHASE 6) ─────────────────────────────
-// Apple-quality launch screen. True black. Gold Karma wheel.
-// Minimal. Purposeful. Every element earns its place.
+// ─── KARMA APP — SPLASH SCREEN (GITA) ────────────────────────────────
+// Dawn on Kurukshetra. The chariot is ready.
+// Gold wheel. Gita shloka. Krishna is here.
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, Animated, StyleSheet,
-  StatusBar, Dimensions, Image,
+  View, Text, Animated, StyleSheet, StatusBar, Image,
 } from 'react-native';
-import { Colors, Typography } from '../constants/colors';
-import { getDatabase }        from '../database/database';
-import { getSetting }         from '../database/habitService';
-
-const { width, height } = Dimensions.get('window');
+import { Colors, Typography, Spacing } from '../constants/colors';
+import { SHLOKAS }    from '../constants/shlokas';
+import { getDatabase } from '../database/database';
+import { getSetting, setAppTheme } from '../database/habitService';
+import ShlokaDisplay   from '../components/ShlokaDisplay';
 
 const SplashScreen = ({ onReady }) => {
   const wheelSpin  = useRef(new Animated.Value(0)).current;
   const masterFade = useRef(new Animated.Value(0)).current;
   const logoScale  = useRef(new Animated.Value(0.7)).current;
-  const textSlide  = useRef(new Animated.Value(20)).current;
-  const [error,    setError]    = useState(null);
+  const shlokeFade = useRef(new Animated.Value(0)).current;
+  const [error,    setError]   = useState(null);
   const [customBg, setCustomBg] = useState(null);
+
+  const shloka = SHLOKAS.splash;
 
   useEffect(() => {
     _animate();
@@ -27,42 +28,41 @@ const SplashScreen = ({ onReady }) => {
   }, []);
 
   const _animate = () => {
-    // Continuous wheel spin
     Animated.loop(
-      Animated.timing(wheelSpin, {
-        toValue: 1, duration: 5000, useNativeDriver: true,
-      })
+      Animated.timing(wheelSpin, { toValue: 1, duration: 6000, useNativeDriver: true })
     ).start();
 
-    // Fade + scale entry
     Animated.parallel([
       Animated.timing(masterFade, {
-        toValue: 1, duration: 700,
-        delay: 100, useNativeDriver: true,
+        toValue: 1, duration: 700, delay: 100, useNativeDriver: true,
       }),
       Animated.spring(logoScale, {
-        toValue: 1, tension: 40, friction: 7,
-        delay: 100, useNativeDriver: true,
-      }),
-      Animated.timing(textSlide, {
-        toValue: 0, duration: 500,
-        delay: 300, useNativeDriver: true,
+        toValue: 1, tension: 40, friction: 7, delay: 100, useNativeDriver: true,
       }),
     ]).start();
+
+    // Shloka fades in later
+    setTimeout(() => {
+      Animated.timing(shlokeFade, {
+        toValue: 1, duration: 600, useNativeDriver: true,
+      }).start();
+    }, 600);
   };
 
   const _init = async () => {
     try {
       await getDatabase();
       try {
+        const theme = await getSetting('app_theme');
+        if (theme && typeof setAppTheme === 'function') setAppTheme(theme);
         const uri  = await getSetting('splash_image_uri');
         const type = await getSetting('splash_image_type');
         if (type === 'custom' && uri) setCustomBg(uri);
       } catch {}
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, 2400));
       onReady?.();
     } catch (err) {
-      setError(err.message || 'Failed to start Karma');
+      setError(err.message || 'The chariot could not start. Please restart.');
     }
   };
 
@@ -75,7 +75,7 @@ const SplashScreen = ({ onReady }) => {
       <View style={styles.errorScreen}>
         <StatusBar barStyle="light-content" backgroundColor="#000" />
         <Text style={styles.errorIcon}>⚠️</Text>
-        <Text style={styles.errorTitle}>Couldn't start Karma</Text>
+        <Text style={styles.errorTitle}>The chariot could not start</Text>
         <Text style={styles.errorMsg}>{error}</Text>
         <Text style={styles.errorHint}>Please restart the app</Text>
       </View>
@@ -86,7 +86,6 @@ const SplashScreen = ({ onReady }) => {
     <View style={styles.screen}>
       <StatusBar barStyle="light-content" backgroundColor="#000" translucent />
 
-      {/* Custom background image if set */}
       {customBg && (
         <Image
           source={{ uri: customBg }}
@@ -94,15 +93,13 @@ const SplashScreen = ({ onReady }) => {
           resizeMode="cover"
         />
       )}
-
-      {/* Subtle vignette overlay */}
       {customBg && <View style={styles.vignette} />}
 
-      {/* Very subtle concentric rings */}
-      {[200, 150, 100].map((s, i) => (
+      {/* Concentric rings — mandala effect */}
+      {[220, 170, 120, 70].map((s, i) => (
         <View key={i} style={[styles.ring, {
           width: s, height: s, borderRadius: s / 2,
-          opacity: 0.04 + i * 0.02,
+          opacity: 0.03 + i * 0.025,
         }]} />
       ))}
 
@@ -110,21 +107,28 @@ const SplashScreen = ({ onReady }) => {
         opacity:   masterFade,
         transform: [{ scale: logoScale }],
       }]}>
-        {/* Spinning wheel */}
+        {/* Spinning Dharmachakra */}
         <Animated.Text style={[styles.wheel, { transform: [{ rotate: spin }] }]}>
           ☸
         </Animated.Text>
 
         {/* App name */}
-        <Animated.View style={{ transform: [{ translateY: textSlide }], alignItems: 'center' }}>
-          <Text style={styles.appName}>KARMA</Text>
-          <Text style={styles.sanskrit}>कर्म ही पूजा है</Text>
-          <View style={styles.divider} />
-          <Text style={styles.tagline}>Discipline. Identity. Consistency.</Text>
+        <Text style={styles.appName}>KARMA</Text>
+
+        {/* Tagline */}
+        <Text style={styles.tagline}>
+          Your charioteer. Your mirror. Your dharma.
+        </Text>
+
+        {/* Divider */}
+        <View style={styles.divider} />
+
+        {/* Shloka */}
+        <Animated.View style={{ opacity: shlokeFade, width: '100%' }}>
+          <ShlokaDisplay shloka={shloka} variant="large" showDivider={false} />
         </Animated.View>
       </Animated.View>
 
-      {/* Version — bottom */}
       <Animated.Text style={[styles.version, { opacity: masterFade }]}>
         karma · v1.0
       </Animated.Text>
@@ -144,11 +148,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   ring: {
-    position:   'absolute',
-    borderWidth: 1,
+    position:    'absolute',
+    borderWidth:  1,
     borderColor: Colors.gold,
   },
-  content:  { alignItems: 'center', gap: 20 },
+  content:  { alignItems: 'center', gap: Spacing.xl, paddingHorizontal: 32, width: '100%' },
   wheel: {
     fontSize:         88,
     color:            Colors.gold,
@@ -157,34 +161,28 @@ const styles = StyleSheet.create({
     textShadowRadius: 28,
   },
   appName: {
-    fontSize:     44,
+    fontSize:     40,
     fontWeight:   '700',
     color:        Colors.white,
-    letterSpacing: 14,
-    marginBottom:  8,
-  },
-  sanskrit: {
-    fontSize:     16,
-    color:        Colors.gold,
-    letterSpacing: 3,
-    marginBottom:  16,
-    opacity:       0.85,
-  },
-  divider: {
-    width:           48,
-    height:           1,
-    backgroundColor: 'rgba(245,166,35,0.3)',
-    marginBottom:    16,
+    letterSpacing: 12,
+    textAlign:    'center',
   },
   tagline: {
-    fontSize:     13,
-    color:        Colors.textMuted,
-    letterSpacing: 2,
+    ...Typography.footnote,
+    color:     Colors.textMuted,
+    textAlign: 'center',
+    letterSpacing: 0.5,
+    fontStyle: 'italic',
+  },
+  divider: {
+    width:           60,
+    height:           1,
+    backgroundColor: Colors.goldAlpha40,
   },
   version: {
     position:      'absolute',
     bottom:         44,
-    fontSize:       12,
+    ...Typography.caption2,
     color:          Colors.textDim,
     letterSpacing:  1,
   },
@@ -194,12 +192,12 @@ const styles = StyleSheet.create({
     alignItems:     'center',
     justifyContent: 'center',
     padding:        32,
-    gap:            12,
+    gap:            14,
   },
   errorIcon:  { fontSize: 48 },
-  errorTitle: { fontSize: 20, color: Colors.white, fontWeight: '700' },
-  errorMsg:   { fontSize: 14, color: Colors.red, textAlign: 'center' },
-  errorHint:  { fontSize: 13, color: Colors.textDim },
+  errorTitle: { ...Typography.title3, color: Colors.white, textAlign: 'center' },
+  errorMsg:   { ...Typography.body, color: Colors.red, textAlign: 'center' },
+  errorHint:  { ...Typography.footnote, color: Colors.textDim },
 });
 
 export default SplashScreen;

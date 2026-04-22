@@ -1,6 +1,6 @@
-// ─── KARMA APP — ROOT (PHASE 7 FINAL) ────────────────────────────────
-// Reads theme preference from DB before first render.
-// Applies theme to Colors object — all screens pick it up.
+// ─── KARMA APP — ROOT (GITA PHASE A) ─────────────────────────────────
+// Flow: Splash → Identity Declaration → Main App
+// Identity screen shown once per day.
 
 import React, { useState, useEffect, useRef } from 'react';
 import { NavigationContainer }  from '@react-navigation/native';
@@ -9,25 +9,31 @@ import { SafeAreaProvider }     from 'react-native-safe-area-context';
 import * as Notifications       from 'expo-notifications';
 import ErrorBoundary            from './src/components/ErrorBoundary';
 import SplashScreen             from './src/screens/SplashScreen';
+import IdentityScreen           from './src/screens/IdentityScreen';
 import AppNavigator             from './src/navigation/AppNavigator';
 import { Colors, setAppTheme }  from './src/constants/colors';
 import {
   configureNotifications,
   scheduleAllHabitNotifications,
 } from './src/services/notificationService';
-import { getDatabase }    from './src/database/database';
-import { getSetting }     from './src/database/habitService';
+import { getDatabase }  from './src/database/database';
+import { getSetting }   from './src/database/habitService';
 
 configureNotifications();
 
+const PHASE = {
+  SPLASH:   'splash',
+  IDENTITY: 'identity',
+  APP:      'app',
+};
+
 export default function App() {
-  const [ready,      setReady]      = useState(false);
-  const [appVisible, setAppVisible] = useState(false);
-  const navRef                       = useRef(null);
-  const responseListenerRef          = useRef(null);
+  const [phase,   setPhase]   = useState(PHASE.SPLASH);
+  const navRef                 = useRef(null);
+  const responseListenerRef    = useRef(null);
 
   useEffect(() => {
-    _applyThemeEarly();
+    _applyTheme();
     _setupNotifListener();
     return () => {
       if (responseListenerRef.current) {
@@ -36,8 +42,7 @@ export default function App() {
     };
   }, []);
 
-  // Apply theme before splash even shows — prevents flash
-  const _applyThemeEarly = async () => {
+  const _applyTheme = async () => {
     try {
       await getDatabase();
       const theme = await getSetting('app_theme');
@@ -56,23 +61,44 @@ export default function App() {
             navRef.current.navigate('HabitDetail', { habitId: data.habitId });
           }
         } catch (err) {
-          console.warn('Notification response error:', err.message);
+          console.warn('Notification tap error:', err.message);
         }
       }
     );
   };
 
-  const _handleAppReady = async () => {
+  const _handleSplashReady = async () => {
     try {
       await scheduleAllHabitNotifications();
     } catch (err) {
       console.warn('Could not schedule notifications:', err.message);
     }
-    setAppVisible(true);
+
+    // Check if identity screen was shown today
+    try {
+      const lastShown = await getSetting('identity_shown_date');
+      const today     = new Date().toISOString().split('T')[0];
+      if (lastShown !== today) {
+        setPhase(PHASE.IDENTITY);
+      } else {
+        setPhase(PHASE.APP);
+      }
+    } catch {
+      setPhase(PHASE.IDENTITY);
+    }
+  };
+
+  const _handleIdentityDismiss = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const { setSetting } = require('./src/database/habitService');
+      await setSetting('identity_shown_date', today);
+    } catch {}
+    setPhase(PHASE.APP);
   };
 
   const navTheme = {
-    dark: Colors.isDark,
+    dark: Colors.isDark !== false,
     colors: {
       primary:      Colors.gold,
       background:   Colors.background,
@@ -87,17 +113,25 @@ export default function App() {
     <ErrorBoundary>
       <SafeAreaProvider>
         <StatusBar
-          style={Colors.isDark ? 'light' : 'dark'}
+          style={Colors.isDark !== false ? 'light' : 'dark'}
           backgroundColor="transparent"
           translucent
         />
-        {!appVisible ? (
-          <SplashScreen onReady={_handleAppReady} />
-        ) : (
+
+        {phase === PHASE.SPLASH && (
+          <SplashScreen onReady={_handleSplashReady} />
+        )}
+
+        {phase === PHASE.IDENTITY && (
+          <IdentityScreen onDismiss={_handleIdentityDismiss} />
+        )}
+
+        {phase === PHASE.APP && (
           <NavigationContainer theme={navTheme} ref={navRef}>
             <AppNavigator />
           </NavigationContainer>
         )}
+
       </SafeAreaProvider>
     </ErrorBoundary>
   );
