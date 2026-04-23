@@ -1,29 +1,27 @@
-// ─── KARMA APP — DATABASE LAYER ─────────────────────────────────────
-// expo-sqlite v15 async API. Room-equivalent for React Native.
-// All tables, migrations, and initialization handled here.
+// ─── KARMA APP — DATABASE (PHASE B) ──────────────────────────────────
+// New tables: mood_logs, slip_triggers, weekly_reflections
+// New columns: habits.time_of_day
+// Safe migrations — ALTER TABLE only if column missing.
 
 import * as SQLite from 'expo-sqlite';
 
 let _db = null;
-
-// ── Open & Initialize ─────────────────────────────────────────────────
 
 export const getDatabase = async () => {
   if (_db) return _db;
   try {
     _db = await SQLite.openDatabaseAsync('karma.db');
     await _initializeTables(_db);
+    await _runMigrations(_db);
     await _seedDefaultSettings(_db);
-    console.log('✅ Karma database ready');
+    console.log('✅ Karma database ready (Phase B)');
     return _db;
   } catch (error) {
     console.error('❌ Database init failed:', error);
-    _db = null; // Reset so next call retries
+    _db = null;
     throw new Error(`Database failed to open: ${error.message}`);
   }
 };
-
-// ── Table Definitions ─────────────────────────────────────────────────
 
 const _initializeTables = async (db) => {
   try {
@@ -35,12 +33,14 @@ const _initializeTables = async (db) => {
         id                     INTEGER PRIMARY KEY AUTOINCREMENT,
         name                   TEXT NOT NULL CHECK(length(trim(name)) >= 3),
         icon                   TEXT NOT NULL DEFAULT '⭐',
-        color                  TEXT NOT NULL DEFAULT '#1E7FFF',
+        color                  TEXT NOT NULL DEFAULT '#F5A623',
         type                   TEXT NOT NULL DEFAULT 'build'
                                CHECK(type IN ('build','break')),
         frequency              TEXT NOT NULL DEFAULT 'daily'
                                CHECK(frequency IN ('daily','specific_days')),
         days                   TEXT NOT NULL DEFAULT '1,2,3,4,5,6,7',
+        time_of_day            TEXT NOT NULL DEFAULT 'anytime'
+                               CHECK(time_of_day IN ('morning','afternoon','evening','anytime')),
         reminder_time          TEXT,
         reminder_type          TEXT NOT NULL DEFAULT 'none'
                                CHECK(reminder_type IN ('soft','hard','none')),
@@ -68,20 +68,20 @@ const _initializeTables = async (db) => {
       );
 
       CREATE TABLE IF NOT EXISTS milestones (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        habit_id      INTEGER NOT NULL,
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        habit_id       INTEGER NOT NULL,
         milestone_days INTEGER NOT NULL,
-        achieved_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+        achieved_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
         FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE,
         UNIQUE(habit_id, milestone_days)
       );
 
       CREATE TABLE IF NOT EXISTS xp_log (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        habit_id   INTEGER,
-        xp         INTEGER NOT NULL DEFAULT 0,
-        reason     TEXT,
-        date       TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        habit_id INTEGER,
+        xp       INTEGER NOT NULL DEFAULT 0,
+        reason   TEXT,
+        date     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
         FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE SET NULL
       );
 
@@ -90,10 +90,48 @@ const _initializeTables = async (db) => {
         value TEXT NOT NULL DEFAULT ''
       );
 
+      -- ── PHASE B NEW TABLES ────────────────────────────────────────
+
+      CREATE TABLE IF NOT EXISTS mood_logs (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        date        TEXT NOT NULL,
+        time_of_day TEXT NOT NULL CHECK(time_of_day IN ('morning','evening')),
+        mood        INTEGER NOT NULL CHECK(mood BETWEEN 1 AND 5),
+        energy      INTEGER NOT NULL CHECK(energy BETWEEN 1 AND 5),
+        note        TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+        UNIQUE(date, time_of_day)
+      );
+
+      CREATE TABLE IF NOT EXISTS slip_triggers (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        habit_id   INTEGER NOT NULL,
+        date       TEXT NOT NULL,
+        trigger    TEXT NOT NULL,
+        note       TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+        FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS weekly_reflections (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        week_start  TEXT NOT NULL UNIQUE,
+        went_well   TEXT,
+        struggled   TEXT,
+        commitment  TEXT,
+        mood_avg    REAL DEFAULT 0,
+        energy_avg  REAL DEFAULT 0,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+      );
+
       CREATE INDEX IF NOT EXISTS idx_checkins_habit_date
         ON checkins(habit_id, date);
       CREATE INDEX IF NOT EXISTS idx_checkins_date
         ON checkins(date);
+      CREATE INDEX IF NOT EXISTS idx_slip_triggers_habit
+        ON slip_triggers(habit_id);
+      CREATE INDEX IF NOT EXISTS idx_mood_logs_date
+        ON mood_logs(date);
     `);
   } catch (error) {
     console.error('❌ Table creation failed:', error);
@@ -101,19 +139,48 @@ const _initializeTables = async (db) => {
   }
 };
 
+// Safe migrations — add columns to existing tables if missing
+const _runMigrations = async (db) => {
+  try {
+    // Check and add time_of_day to habits
+    const habitCols = await db.getAllAsync("PRAGMA table_info(habits)");
+    const colNames  = habitCols.map(c => c.name);
+
+    if (!colNames.includes('time_of_day')) {
+      await db.execAsync(
+        `ALTER TABLE habits ADD COLUMN time_of_day TEXT NOT NULL DEFAULT 'anytime'`
+      );
+      console.log('✅ Migration: added habits.time_of_day');
+    }
+
+    console.log('✅ Migrations complete');
+  } catch (error) {
+    // Non-fatal — log and continue
+    console.warn('⚠️ Migration warning:', error.message);
+  }
+};
+
 const _seedDefaultSettings = async (db) => {
   try {
     const defaults = [
-      ['alter_ego',          'Neel'],
-      ['week_starts',        'monday'],
-      ['daily_reset_hour',   '0'],
-      ['punishment_default', 'balanced'],
-      ['splash_image_uri',   ''],
-      ['splash_image_type',  'default'],
-      ['total_xp',           '0'],
-      ['user_level',         '1'],
-      ['onboarded',          'false'],
-      ['notification_master','true'],
+      ['alter_ego',             'Neel'],
+      ['week_starts',           'monday'],
+      ['daily_reset_hour',      '0'],
+      ['punishment_default',    'balanced'],
+      ['splash_image_uri',      ''],
+      ['splash_image_type',     'default'],
+      ['total_xp',              '0'],
+      ['user_level',            '1'],
+      ['onboarded',             'false'],
+      ['notification_master',   'true'],
+      ['app_theme',             'dark'],
+      ['identity_statement',    'I am Neel. My mind holds the reins. The horses do not rule me.'],
+      ['identity_shown_date',   ''],
+      ['wa_daily',              'true'],
+      ['wa_weekly',             'true'],
+      ['last_perfect_day',      ''],
+      ['last_freeze_award',     ''],
+      ['streak_freeze_count',   '0'],
     ];
 
     for (const [key, value] of defaults) {
@@ -123,12 +190,9 @@ const _seedDefaultSettings = async (db) => {
       );
     }
   } catch (error) {
-    // Non-fatal — defaults not critical
-    console.warn('⚠️ Could not seed default settings:', error.message);
+    console.warn('⚠️ Could not seed settings:', error.message);
   }
 };
-
-// ── Utility ───────────────────────────────────────────────────────────
 
 export const closeDatabase = async () => {
   if (_db) {

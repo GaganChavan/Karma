@@ -1,11 +1,12 @@
-// ─── KARMA APP — HABIT DETAIL (GITA PHASE A) ────────────────────────
-// Krishna speaks. The chariot language throughout.
-// Gita shlokas for punishment, milestones, encouragement.
+// ─── KARMA APP — HABIT DETAIL (PHASE B) ──────────────────────────────
+// Added: Trigger journal modal on every slip
+// Added: Trigger pattern display after 5+ slips
 
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, ActivityIndicator,
+  Modal, FlatList,
 } from 'react-native';
 import { SafeAreaView }   from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -22,52 +23,63 @@ import {
 import {
   getShloka, getMilestoneContext, getPunishContext,
 } from '../constants/shlokas';
+import {
+  logSlipTrigger, getTriggerPattern, TRIGGER_OPTIONS,
+} from '../database/moodService';
 import ShlokaDisplay from '../components/ShlokaDisplay';
 
-const PUNISH_LABELS  = ['', 'MILD', 'MODERATE', 'HARSH', 'MAXIMUM'];
-const PUNISH_COLORS  = [
+const PUNISH_LABELS = ['', 'MILD', 'MODERATE', 'HARSH', 'MAXIMUM'];
+const PUNISH_COLORS = [
   Colors.gold, Colors.orange,
   Colors.punishLevel2, Colors.red, Colors.punishLevel4,
 ];
 
-// Krishna speaks at each punishment level
 const KRISHNA_SPEAKS = [
   '',
   'The horse stirred. The rein slipped. Tighten your grip — the path is not lost.',
-  'The senses are winning, Neel. Where is your charioteer? Krishna does not fight for Arjuna — Arjuna must fight.',
-  'Arjuna also wanted to surrender. Krishna said — rise. You have been given a chariot and a battlefield. Use them.',
-  'The self alone is the friend of the self. The self alone is the enemy. You are choosing the enemy. Today that changes.',
+  'The senses are winning, Neel. Where is your charioteer?',
+  'Arjuna also wanted to surrender. Krishna said — rise and fight.',
+  'The self alone is friend or enemy. You are choosing the enemy. Today that changes.',
 ];
 
 const HabitDetailScreen = ({ navigation, route }) => {
-  const { habitId } = route.params;
+  const { habitId, showTrigger = false } = route.params;
 
-  const [habit,       setHabit]       = useState(null);
-  const [streak,      setStreak]      = useState({ current: 0, longest: 0 });
-  const [checkins,    setCheckins]    = useState([]);
-  const [todayStatus, setTodayStatus] = useState(null);
-  const [slipCount,   setSlipCount]   = useState(0);
-  const [punishLevel, setPunishLevel] = useState(0);
-  const [weekRate,    setWeekRate]    = useState(0);
-  const [milestones,  setMilestones]  = useState([]);
-  const [freezeCount, setFreezeCount] = useState(0);
-  const [loading,     setLoading]     = useState(true);
-  const [saving,      setSaving]      = useState(false);
-  const [error,       setError]       = useState(null);
+  const [habit,         setHabit]         = useState(null);
+  const [streak,        setStreak]         = useState({ current: 0, longest: 0 });
+  const [checkins,      setCheckins]       = useState([]);
+  const [todayStatus,   setTodayStatus]    = useState(null);
+  const [slipCount,     setSlipCount]      = useState(0);
+  const [punishLevel,   setPunishLevel]    = useState(0);
+  const [weekRate,      setWeekRate]       = useState(0);
+  const [milestones,    setMilestones]     = useState([]);
+  const [freezeCount,   setFreezeCount]    = useState(0);
+  const [triggerPattern,setTriggerPattern] = useState(null);
+  const [loading,       setLoading]        = useState(true);
+  const [saving,        setSaving]         = useState(false);
+  const [error,         setError]          = useState(null);
+  const [triggerModal,  setTriggerModal]   = useState(false);
+  const [pendingSlips,  setPendingSlips]   = useState(0);
 
-  useFocusEffect(useCallback(() => { _loadData(); }, [habitId]));
+  useFocusEffect(useCallback(() => {
+    _loadData();
+    if (showTrigger) {
+      setTimeout(() => setTriggerModal(true), 500);
+    }
+  }, [habitId]));
 
   const _loadData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const [h, s, cs, wr, ms, fc] = await Promise.all([
+      const [h, s, cs, wr, ms, fc, tp] = await Promise.all([
         getHabitById(habitId),
         getStreak(habitId),
         getCheckinsForHabit(habitId, 90),
         getWeeklyCompletionRate(habitId),
         getHabitMilestones(habitId),
         getStreakFreezeCount(),
+        getTriggerPattern(habitId),
       ]);
       const today  = DateUtils.today();
       const todayC = cs.find(c => c.date === today);
@@ -79,9 +91,10 @@ const HabitDetailScreen = ({ navigation, route }) => {
       setWeekRate(wr);
       setMilestones(ms);
       setFreezeCount(fc);
+      setTriggerPattern(tp);
       if (h.type === 'break') setPunishLevel(await getPunishmentLevel(habitId));
     } catch (err) {
-      setError(err.message || 'The chariot could not load this habit');
+      setError(err.message || 'Could not load habit');
     } finally {
       setLoading(false);
     }
@@ -98,7 +111,6 @@ const HabitDetailScreen = ({ navigation, route }) => {
       await checkIn(habitId, status, null, newSlips);
       const ns = await getStreak(habitId);
       setStreak(ns);
-
       if (status === 'done' || status === 'resisted') {
         const hit = await checkMilestone(habitId, ns.current);
         if (hit) {
@@ -106,7 +118,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
           setTimeout(() => {
             Alert.alert(
               `${hit.badge} ${hit.title}`,
-              `${hit.desc}\n\n+${hit.xp} Karma XP\n\n${shloka.sanskrit}\n"${shloka.meaning}"\n— ${shloka.reference}`,
+              `${hit.desc}\n\n+${hit.xp} XP\n\n${shloka.sanskrit}\n"${shloka.meaning}"\n— ${shloka.reference}`,
               [{ text: '🔱 Jai Shri Krishna' }]
             );
           }, 300);
@@ -115,40 +127,56 @@ const HabitDetailScreen = ({ navigation, route }) => {
       }
       const newRate = await getWeeklyCompletionRate(habitId);
       setWeekRate(newRate);
+      const newTP = await getTriggerPattern(habitId);
+      setTriggerPattern(newTP);
     } catch (err) {
       setTodayStatus(prev);
       setSlipCount(prevSlip);
-      Alert.alert('The rein slipped', err.message);
+      Alert.alert('Error', err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Called when user logs a slip — opens trigger modal
+  const _handleSlip = () => {
+    const newSlips = slipCount + 1;
+    setPendingSlips(newSlips);
+    setTriggerModal(true);
+  };
+
+  const _onTriggerSelected = async (triggerKey) => {
+    setTriggerModal(false);
+    try {
+      // Log the slip
+      await _doCheckIn('slip', pendingSlips);
+      // Log the trigger
+      await logSlipTrigger({ habitId, trigger: triggerKey });
+      // Reload trigger pattern
+      const tp = await getTriggerPattern(habitId);
+      setTriggerPattern(tp);
+    } catch (err) {
+      Alert.alert('Error', err.message);
     }
   };
 
   const _useFreeze = async () => {
     const freezeShloka = getShloka('streakFreeze');
     if (freezeCount <= 0) {
-      Alert.alert(
-        '🧊 No Freezes',
-        'Earn streak freezes by holding 80%+ consistency for a full week.\n\n' +
-        '"' + freezeShloka.meaning + '"\n— ' + freezeShloka.reference
-      );
+      Alert.alert('🧊 No Freezes', 'Earn freezes by maintaining 80%+ weekly consistency.');
       return;
     }
     Alert.alert(
       '🧊 Use Streak Freeze?',
-      `${freezeCount} freeze${freezeCount > 1 ? 's' : ''} available.\n\nYour streak is protected for today.`,
+      `${freezeCount} freeze${freezeCount > 1 ? 's' : ''} available. Streak protected for today.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Protect the Streak',
           onPress: async () => {
             const r = await useStreakFreeze(habitId);
-            if (r.success) {
-              Alert.alert('🧊 Protected', r.message + '\n\n"' + freezeShloka.meaning + '"');
-              _loadData();
-            } else {
-              Alert.alert('Error', r.message);
-            }
+            if (r.success) { Alert.alert('🧊 Protected!', r.message); _loadData(); }
+            else Alert.alert('Error', r.message);
           },
         },
       ]
@@ -164,30 +192,23 @@ const HabitDetailScreen = ({ navigation, route }) => {
   const isSlipped   = todayStatus === 'slip';
   const isComplete  = isDone || isResisted;
 
-  const accentColor   = punishLevel > 0
-    ? PUNISH_COLORS[punishLevel]
-    : (habit?.color || Colors.gold);
+  const accentColor = punishLevel > 0
+    ? PUNISH_COLORS[punishLevel] : (habit?.color || Colors.gold);
 
   const cMap = {};
   checkins.forEach(c => { cMap[c.date] = c; });
-  if (todayStatus) {
-    cMap[DateUtils.today()] = { ...(cMap[DateUtils.today()] || {}), status: todayStatus };
-  }
+  if (todayStatus) cMap[DateUtils.today()] = { ...(cMap[DateUtils.today()] || {}), status: todayStatus };
 
   const earnedDays    = milestones.map(m => m.milestone_days);
   const nextMilestone = [3,7,14,21,30,48,60,75,90,180,365].find(d => !earnedDays.includes(d));
   const weekDates     = DateUtils.getWeekDates();
-
-  // Get punishment shloka
-  const punishShloka = punishLevel > 0
-    ? getShloka(getPunishContext(punishLevel))
-    : null;
+  const punishShloka  = punishLevel > 0 ? getShloka(getPunishContext(punishLevel)) : null;
 
   if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={Colors.gold} />
-        <Text style={styles.loadText}>The chariot is readying...</Text>
+        <Text style={styles.loadText}>Loading...</Text>
       </View>
     );
   }
@@ -197,7 +218,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
       <View style={styles.center}>
         <Text style={styles.errText}>{error || 'Habit not found'}</Text>
         <TouchableOpacity style={styles.retryBtn} onPress={_loadData}>
-          <Text style={styles.retryText}>Try Again</Text>
+          <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
       </View>
     );
@@ -220,11 +241,8 @@ const HabitDetailScreen = ({ navigation, route }) => {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+
         {/* Hero */}
         <View style={[styles.hero, { borderColor: accentColor + '30' }]}>
           <View style={[styles.heroIcon, { backgroundColor: accentColor + '20' }]}>
@@ -241,11 +259,9 @@ const HabitDetailScreen = ({ navigation, route }) => {
             </Text>
           </View>
           {punishLevel > 0 && (
-            <View style={[styles.punishPill, { backgroundColor: accentColor + '20' }]}>
-              <Text style={[styles.punishPillText, { color: accentColor }]}>
-                ⚠️  {PUNISH_LABELS[punishLevel]} — THE HORSE IS RUNNING
-              </Text>
-            </View>
+            <Text style={[styles.punishTag, { color: accentColor }]}>
+              ⚠️  {PUNISH_LABELS[punishLevel]} — THE HORSE IS RUNNING
+            </Text>
           )}
         </View>
 
@@ -254,15 +270,12 @@ const HabitDetailScreen = ({ navigation, route }) => {
           {[
             {
               label: habit.type === 'build' ? 'REIN HELD' : 'DAYS CLEAN',
-              value: streak.current > 0
-                ? `${streak.current} ${habit.type === 'build' ? '🪔' : '✊'}`
-                : '0',
+              value: streak.current > 0 ? `${streak.current} ${habit.type === 'build' ? '🪔' : '✊'}` : '0',
               color: streak.current > 0 ? accentColor : Colors.textMuted,
             },
             { label: 'BEST', value: `${streak.longest} 🏆`, color: Colors.gold },
             {
-              label: 'THIS WEEK',
-              value: `${weekRate}%`,
+              label: 'THIS WEEK', value: `${weekRate}%`,
               color: weekRate >= 70 ? Colors.green : weekRate >= 40 ? Colors.gold : Colors.red,
             },
           ].map((s, i) => (
@@ -272,6 +285,23 @@ const HabitDetailScreen = ({ navigation, route }) => {
             </View>
           ))}
         </View>
+
+        {/* Trigger pattern — shown after enough data */}
+        {habit.type === 'break' && triggerPattern && triggerPattern.totalSlips >= 3 && (
+          <View style={styles.triggerPatternCard}>
+            <Text style={styles.triggerPatternLabel}>🧠 YOUR BATTLEFIELD INTELLIGENCE</Text>
+            <Text style={styles.triggerPatternText}>
+              {triggerPattern.topInfo?.icon} <Text style={{ fontWeight: '700', color: Colors.gold }}>
+                {triggerPattern.topInfo?.label}
+              </Text>{' '}
+              triggers {triggerPattern.percentage}% of your slips
+            </Text>
+            <Text style={styles.triggerPatternSub}>
+              Based on {triggerPattern.totalSlips} logged slips in the last 30 days.{'\n'}
+              Krishna says: know your battlefield. You now do.
+            </Text>
+          </View>
+        )}
 
         {/* Next milestone */}
         {nextMilestone && streak.current > 0 && (
@@ -296,21 +326,15 @@ const HabitDetailScreen = ({ navigation, route }) => {
             const skip = c?.status === 'skipped';
             return (
               <View key={d.dateStr} style={styles.weekDay}>
-                <Text style={[styles.weekLabel, d.isToday && { color: Colors.gold }]}>
-                  {d.label}
-                </Text>
+                <Text style={[styles.weekLabel, d.isToday && { color: Colors.gold }]}>{d.label}</Text>
                 <View style={[styles.weekDot, {
                   backgroundColor:
-                    done ? accentColor      :
-                    slip ? Colors.red+'55'  :
-                    miss ? Colors.red+'25'  :
-                    skip ? Colors.gold+'25' :
+                    done ? accentColor : slip ? Colors.red+'55' :
+                    miss ? Colors.red+'25' : skip ? Colors.gold+'25' :
                     d.isToday ? Colors.goldAlpha15 : Colors.backgroundCard,
                   borderColor:
-                    d.isToday ? Colors.gold  :
-                    done      ? accentColor  :
-                    slip      ? Colors.red   :
-                    Colors.separator,
+                    d.isToday ? Colors.gold : done ? accentColor :
+                    slip ? Colors.red : Colors.separator,
                   borderWidth: d.isToday ? 2 : 1,
                 }]}>
                   <Text style={{ fontSize: 11, color: done ? '#000' : Colors.textDim }}>
@@ -322,7 +346,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
           })}
         </View>
 
-        {/* Action */}
+        {/* Action buttons */}
         <Text style={[styles.sectionLabel, { marginTop: Spacing.xl }]}>TODAY'S BATTLE</Text>
 
         {habit.type === 'build' ? (
@@ -330,10 +354,9 @@ const HabitDetailScreen = ({ navigation, route }) => {
             <TouchableOpacity
               style={[styles.mainBtn, {
                 backgroundColor:
-                  isDone    ? Colors.green           :
+                  isDone    ? Colors.green :
                   isSkipped ? Colors.backgroundElevated :
-                  isMissed  ? Colors.backgroundElevated :
-                  accentColor,
+                  isMissed  ? Colors.backgroundElevated : accentColor,
                 opacity: saving ? 0.6 : 1,
               }]}
               onPress={() => _doCheckIn(isDone ? 'missed' : 'done')}
@@ -349,7 +372,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
                     {isDone    ? '✓  The rein held — Tap to undo'
                     : isSkipped ? '⏭  Skipped — Tap to complete'
                     : isMissed  ? '✗  Missed — Tap to complete'
-                    : '☀️  Mark Complete — Claim your karma'}
+                    : '☀️  Mark Complete'}
                   </Text>
               }
             </TouchableOpacity>
@@ -357,24 +380,21 @@ const HabitDetailScreen = ({ navigation, route }) => {
             <View style={styles.secondRow}>
               <TouchableOpacity
                 style={[styles.secBtn, {
-                  borderColor:     isSkipped ? Colors.gold : Colors.separator,
+                  borderColor: isSkipped ? Colors.gold : Colors.separator,
                   backgroundColor: isSkipped ? Colors.goldAlpha15 : Colors.backgroundCard,
                 }]}
-                onPress={() => _doCheckIn('skipped')}
-                disabled={saving}
+                onPress={() => _doCheckIn('skipped')} disabled={saving}
               >
                 <Text style={[styles.secBtnText, { color: isSkipped ? Colors.gold : Colors.textMuted }]}>
                   ⏭  {isSkipped ? 'Skipped ✓' : 'Skip Today'}
                 </Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={[styles.secBtn, {
-                  borderColor:     isMissed ? Colors.red : Colors.separator,
+                  borderColor: isMissed ? Colors.red : Colors.separator,
                   backgroundColor: isMissed ? Colors.redAlpha15 : Colors.backgroundCard,
                 }]}
-                onPress={() => _doCheckIn('missed')}
-                disabled={saving}
+                onPress={() => _doCheckIn('missed')} disabled={saving}
               >
                 <Text style={[styles.secBtnText, { color: isMissed ? Colors.red : Colors.textMuted }]}>
                   ✗  {isMissed ? 'Missed ✓' : 'Mark Missed'}
@@ -387,9 +407,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
                 style={[styles.freezeBtn, { opacity: freezeCount > 0 ? 1 : 0.4 }]}
                 onPress={_useFreeze}
               >
-                <Text style={styles.freezeBtnText}>
-                  🧊  Streak Freeze — {freezeCount} available
-                </Text>
+                <Text style={styles.freezeBtnText}>🧊  Streak Freeze — {freezeCount} available</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -401,8 +419,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
                 borderColor:     isResisted ? Colors.green : Colors.separator,
                 backgroundColor: isResisted ? Colors.greenAlpha15 : Colors.backgroundCard,
               }]}
-              onPress={() => _doCheckIn('resisted')}
-              disabled={saving}
+              onPress={() => _doCheckIn('resisted')} disabled={saving}
             >
               <Text style={[styles.breakBtnText, { color: Colors.green }]}>
                 {isResisted ? '✓  The rein held today' : '✊  The rein held — I resisted'}
@@ -414,16 +431,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
                 borderColor:     isSlipped ? Colors.red : Colors.separator,
                 backgroundColor: isSlipped ? Colors.redAlpha15 : Colors.backgroundCard,
               }]}
-              onPress={() => Alert.alert(
-                'The horse bolted',
-                'Be honest with your charioteer.',
-                [
-                  { text: '😔 Yes — log the slip', style: 'destructive',
-                    onPress: () => _doCheckIn('slip', slipCount + 1) },
-                  { text: 'Cancel', style: 'cancel' },
-                ]
-              )}
-              disabled={saving}
+              onPress={_handleSlip} disabled={saving}
             >
               <Text style={[styles.breakBtnText, { color: Colors.red }]}>
                 {isSlipped ? `😔  The horse bolted (${slipCount}×)` : '😔  Log — the horse bolted'}
@@ -432,28 +440,24 @@ const HabitDetailScreen = ({ navigation, route }) => {
           </View>
         )}
 
-        {/* Status pill */}
+        {/* Status */}
         {todayStatus && (
           <View style={styles.statusPill}>
             <Text style={styles.statusText}>
               {isDone     && '✅  The dharma is fulfilled for today'}
               {isResisted && '✊  The rein held — your streak grows'}
-              {isSkipped  && '⏭  Skipped — no impact on the streak'}
+              {isSkipped  && '⏭  Skipped — no streak impact'}
               {isMissed   && '❌  The battle was missed — begin again tomorrow'}
               {isSlipped  && `😔  The horse bolted ${slipCount}× today`}
             </Text>
           </View>
         )}
 
-        {/* Krishna speaks — punishment */}
+        {/* Krishna speaks */}
         {punishLevel > 0 && punishShloka && (
           <View style={[styles.krishnaCard, { borderColor: accentColor + '30' }]}>
-            <Text style={[styles.krishnaLabel, { color: accentColor }]}>
-              ☸  KRISHNA SPEAKS
-            </Text>
-            <Text style={styles.krishnaText}>
-              "{KRISHNA_SPEAKS[punishLevel]}"
-            </Text>
+            <Text style={[styles.krishnaLabel, { color: accentColor }]}>☸  KRISHNA SPEAKS</Text>
+            <Text style={styles.krishnaText}>"{KRISHNA_SPEAKS[punishLevel]}"</Text>
             <ShlokaDisplay shloka={punishShloka} variant="inline" />
           </View>
         )}
@@ -461,9 +465,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
         {/* Badges */}
         {milestones.length > 0 && (
           <>
-            <Text style={[styles.sectionLabel, { marginTop: Spacing.xl }]}>
-              VICTORIES EARNED
-            </Text>
+            <Text style={[styles.sectionLabel, { marginTop: Spacing.xl }]}>VICTORIES EARNED</Text>
             <View style={styles.badgeRow}>
               {milestones.map((m) => {
                 const info = MILESTONE_INFO[m.milestone_days] || {};
@@ -478,10 +480,8 @@ const HabitDetailScreen = ({ navigation, route }) => {
           </>
         )}
 
-        {/* 30-day battlefield heatmap */}
-        <Text style={[styles.sectionLabel, { marginTop: Spacing.xl }]}>
-          30-DAY BATTLEFIELD
-        </Text>
+        {/* 30-day heatmap */}
+        <Text style={[styles.sectionLabel, { marginTop: Spacing.xl }]}>30-DAY BATTLEFIELD</Text>
         <View style={styles.heatGrid}>
           {DateUtils.getLastNDays(30).map((date) => {
             const c    = cMap[date];
@@ -492,12 +492,9 @@ const HabitDetailScreen = ({ navigation, route }) => {
             return (
               <View key={date} style={[styles.heatCell, {
                 backgroundColor:
-                  done ? accentColor + 'CC' :
-                  slip ? Colors.red + '77'  :
-                  miss ? Colors.red + '30'  :
-                  Colors.backgroundCard,
-                borderWidth: isT ? 1.5 : 0,
-                borderColor: Colors.gold,
+                  done ? accentColor+'CC' : slip ? Colors.red+'77' :
+                  miss ? Colors.red+'30' : Colors.backgroundCard,
+                borderWidth: isT ? 1.5 : 0, borderColor: Colors.gold,
               }]} />
             );
           })}
@@ -505,6 +502,47 @@ const HabitDetailScreen = ({ navigation, route }) => {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Trigger journal modal */}
+      <Modal
+        visible={triggerModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setTriggerModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.triggerSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.triggerTitle}>What triggered the slip?</Text>
+            <Text style={styles.triggerSubtitle}>
+              Be honest with your charioteer.{'\n'}
+              This builds your battlefield intelligence.
+            </Text>
+            <View style={styles.triggerGrid}>
+              {TRIGGER_OPTIONS.map(t => (
+                <TouchableOpacity
+                  key={t.key}
+                  style={[styles.triggerOption, { borderColor: t.color + '66' }]}
+                  onPress={() => _onTriggerSelected(t.key)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.triggerOptionIcon}>{t.icon}</Text>
+                  <Text style={[styles.triggerOptionLabel, { color: t.color }]}>{t.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity
+              style={styles.triggerSkip}
+              onPress={() => {
+                setTriggerModal(false);
+                _doCheckIn('slip', pendingSlips);
+              }}
+            >
+              <Text style={styles.triggerSkipText}>Skip — log without trigger</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -535,46 +573,44 @@ const styles = StyleSheet.create({
   content: { padding: Spacing.xl, gap: 0 },
 
   hero: {
-    alignItems:     'center',
-    backgroundColor: Colors.backgroundCard,
-    borderRadius:   Radius.xl,
-    borderWidth:     1,
-    padding:        Spacing.xxl,
-    marginBottom:   Spacing.lg,
-    gap:            Spacing.md,
+    alignItems: 'center', backgroundColor: Colors.backgroundCard,
+    borderRadius: Radius.xl, borderWidth: 1,
+    padding: Spacing.xxl, marginBottom: Spacing.lg, gap: Spacing.md,
   },
-  heroIcon: {
-    width: 72, height: 72, borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  heroName:    { ...Typography.title2, color: Colors.textPrimary, textAlign: 'center' },
-  typePill:    { paddingHorizontal: 14, paddingVertical: 6, borderRadius: Radius.full },
-  typePillText:{ ...Typography.caption1, fontWeight: '700', letterSpacing: 1 },
-  punishPill:  { paddingHorizontal: 12, paddingVertical: 5, borderRadius: Radius.full },
-  punishPillText:{ ...Typography.caption2, fontWeight: '700', letterSpacing: 1 },
+  heroIcon:     { width: 72, height: 72, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  heroName:     { ...Typography.title2, color: Colors.textPrimary, textAlign: 'center' },
+  typePill:     { paddingHorizontal: 14, paddingVertical: 6, borderRadius: Radius.full },
+  typePillText: { ...Typography.caption1, fontWeight: '700', letterSpacing: 1 },
+  punishTag:    { ...Typography.caption2, fontWeight: '700', letterSpacing: 1 },
 
   statsRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg },
   statCard: {
     flex: 1, backgroundColor: Colors.backgroundCard,
-    borderRadius: Radius.lg, padding: Spacing.md,
-    alignItems: 'center', gap: 5,
+    borderRadius: Radius.lg, padding: Spacing.md, alignItems: 'center', gap: 5,
     borderWidth: 1, borderColor: Colors.separator,
   },
   statVal:   { fontSize: 22, fontWeight: '700' },
   statLabel: { ...Typography.caption2, color: Colors.textDim, letterSpacing: 1, textAlign: 'center' },
 
-  nextMilestone: {
-    backgroundColor: Colors.goldAlpha15,
+  // Trigger pattern
+  triggerPatternCard: {
+    backgroundColor: Colors.backgroundCard,
     borderRadius:    Radius.lg, borderWidth: 1,
     borderColor:     Colors.goldAlpha25,
-    padding:         Spacing.md, marginBottom: Spacing.lg, alignItems: 'center',
+    padding:         Spacing.lg, gap: Spacing.sm, marginBottom: Spacing.lg,
+  },
+  triggerPatternLabel: { ...Typography.caption2, color: Colors.gold, letterSpacing: 2, fontWeight: '700' },
+  triggerPatternText:  { ...Typography.subheadline, color: Colors.textPrimary },
+  triggerPatternSub:   { ...Typography.caption1, color: Colors.textDim, lineHeight: 18 },
+
+  nextMilestone: {
+    backgroundColor: Colors.goldAlpha15, borderRadius: Radius.lg,
+    borderWidth: 1, borderColor: Colors.goldAlpha25,
+    padding: Spacing.md, marginBottom: Spacing.lg, alignItems: 'center',
   },
   nextMilestoneText: { ...Typography.subheadline, color: Colors.textSecondary },
 
-  sectionLabel: {
-    ...Typography.caption2, color: Colors.textDim,
-    letterSpacing: 2, marginBottom: Spacing.md,
-  },
+  sectionLabel: { ...Typography.caption2, color: Colors.textDim, letterSpacing: 2, marginBottom: Spacing.md },
 
   weekRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing.xs },
   weekDay: { alignItems: 'center', gap: 7, flex: 1 },
@@ -585,11 +621,9 @@ const styles = StyleSheet.create({
   },
 
   buildActions: { gap: Spacing.sm, marginBottom: Spacing.md },
-  mainBtn: {
-    borderRadius: Radius.lg, paddingVertical: 18, alignItems: 'center',
-  },
+  mainBtn: { borderRadius: Radius.lg, paddingVertical: 18, alignItems: 'center' },
   mainBtnText: { ...Typography.headline },
-  secondRow:   { flexDirection: 'row', gap: Spacing.sm },
+  secondRow: { flexDirection: 'row', gap: Spacing.sm },
   secBtn: {
     flex: 1, borderRadius: Radius.lg, borderWidth: 1,
     paddingVertical: 14, alignItems: 'center',
@@ -597,17 +631,13 @@ const styles = StyleSheet.create({
   secBtnText: { ...Typography.subheadline, fontWeight: '600' },
   freezeBtn: {
     borderRadius: Radius.lg, borderWidth: 1,
-    borderColor: Colors.greenAlpha25,
-    backgroundColor: Colors.greenAlpha15,
+    borderColor: Colors.greenAlpha25, backgroundColor: Colors.greenAlpha15,
     paddingVertical: 13, alignItems: 'center',
   },
   freezeBtnText: { ...Typography.subheadline, color: Colors.green, fontWeight: '600' },
 
   breakRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
-  breakBtn: {
-    flex: 1, borderRadius: Radius.lg, borderWidth: 1,
-    paddingVertical: 18, alignItems: 'center',
-  },
+  breakBtn: { flex: 1, borderRadius: Radius.lg, borderWidth: 1, paddingVertical: 18, alignItems: 'center' },
   breakBtnText: { ...Typography.subheadline, fontWeight: '600', textAlign: 'center' },
 
   statusPill: {
@@ -616,18 +646,12 @@ const styles = StyleSheet.create({
   },
   statusText: { ...Typography.subheadline, color: Colors.textMuted },
 
-  // Krishna speaks
   krishnaCard: {
-    backgroundColor: Colors.backgroundCard,
-    borderRadius:    Radius.lg, borderWidth: 1,
-    padding:         Spacing.xl, gap: Spacing.md,
-    marginBottom:    Spacing.md,
+    backgroundColor: Colors.backgroundCard, borderRadius: Radius.lg,
+    borderWidth: 1, padding: Spacing.xl, gap: Spacing.md, marginBottom: Spacing.md,
   },
   krishnaLabel: { ...Typography.caption2, letterSpacing: 2, fontWeight: '700' },
-  krishnaText: {
-    ...Typography.callout, color: Colors.textSecondary,
-    lineHeight: 24, fontStyle: 'italic',
-  },
+  krishnaText:  { ...Typography.callout, color: Colors.textSecondary, lineHeight: 24, fontStyle: 'italic' },
 
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.md },
   badge: {
@@ -638,8 +662,48 @@ const styles = StyleSheet.create({
   badgeEmoji: { fontSize: 24 },
   badgeDays:  { ...Typography.caption1, color: Colors.gold, fontWeight: '700' },
 
-  heatGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: Spacing.md },
-  heatCell:  { width: '6%', aspectRatio: 1, borderRadius: 3 },
+  heatGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: Spacing.md },
+  heatCell: { width: '6%', aspectRatio: 1, borderRadius: 3 },
+
+  // Trigger modal
+  modalOverlay: {
+    flex: 1, backgroundColor: Colors.overlay90, justifyContent: 'flex-end',
+  },
+  triggerSheet: {
+    backgroundColor:      Colors.backgroundCard,
+    borderTopLeftRadius:  Radius.xxl,
+    borderTopRightRadius: Radius.xxl,
+    padding:              Spacing.xl,
+    paddingBottom:        44,
+    gap:                  Spacing.lg,
+  },
+  modalHandle: {
+    width: 36, height: 4, borderRadius: 2,
+    backgroundColor: Colors.separator, alignSelf: 'center',
+  },
+  triggerTitle:    { ...Typography.title3, color: Colors.textPrimary, textAlign: 'center' },
+  triggerSubtitle: {
+    ...Typography.callout, color: Colors.textMuted,
+    textAlign: 'center', lineHeight: 22,
+  },
+  triggerGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    gap: Spacing.sm, justifyContent: 'center',
+  },
+  triggerOption: {
+    width:           '22%',
+    backgroundColor: Colors.backgroundElevated,
+    borderRadius:    Radius.lg, borderWidth: 1,
+    padding:         Spacing.md, alignItems: 'center', gap: 6,
+    aspectRatio:     1,
+    justifyContent:  'center',
+  },
+  triggerOptionIcon:  { fontSize: 24 },
+  triggerOptionLabel: { ...Typography.caption2, fontWeight: '700', textAlign: 'center' },
+  triggerSkip: {
+    alignItems: 'center', paddingVertical: Spacing.md,
+  },
+  triggerSkipText: { ...Typography.callout, color: Colors.textDim },
 });
 
 export default HabitDetailScreen;

@@ -1,6 +1,5 @@
-// ─── KARMA APP — ADD / EDIT HABIT (PHASE 6) ──────────────────────────
-// Apple Settings-inspired form. Clean rows. Gold selection state.
-// Every element purposeful. No visual noise.
+// ─── KARMA APP — ADD HABIT (PHASE B UPDATE) ──────────────────────────
+// Added: Time of day selector — Morning / Afternoon / Evening / Anytime
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -12,9 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius, HabitColors, HabitIcons } from '../constants/colors';
 import { validateHabitForm } from '../utils/validation';
 import { createHabit, updateHabit, getHabitById, archiveHabit } from '../database/habitService';
-import {
-  scheduleHabitNotification, cancelHabitNotification, requestNotificationPermission,
-} from '../services/notificationService';
+import { scheduleHabitNotification, cancelHabitNotification, requestNotificationPermission } from '../services/notificationService';
 
 const DAYS = [
   { key: '1', label: 'Mon' }, { key: '2', label: 'Tue' },
@@ -23,9 +20,17 @@ const DAYS = [
   { key: '7', label: 'Sun' },
 ];
 
+const TIME_OF_DAY_OPTIONS = [
+  { key: 'morning',   label: '🌅 Morning',   desc: 'Before noon' },
+  { key: 'afternoon', label: '☀️ Afternoon',  desc: 'Noon to 6 PM' },
+  { key: 'evening',   label: '🌙 Evening',    desc: 'After 6 PM' },
+  { key: 'anytime',   label: '☸ Anytime',    desc: 'No specific time' },
+];
+
 const defaultForm = {
   name: '', type: 'build', icon: '⭐', color: Colors.gold,
   frequency: 'daily', days: '1,2,3,4,5,6,7',
+  time_of_day: 'anytime',
   reminder_time: '', reminder_type: 'none',
   goal_days: '', punishment_sensitivity: 'balanced',
 };
@@ -34,13 +39,13 @@ const AddHabitScreen = ({ navigation, route }) => {
   const editId = route?.params?.habitId || null;
   const isEdit = !!editId;
 
-  const [form,        setForm]        = useState(defaultForm);
-  const [errors,      setErrors]      = useState({});
-  const [saving,      setSaving]      = useState(false);
-  const [loading,     setLoading]     = useState(isEdit);
-  const [iconModal,   setIconModal]   = useState(false);
-  const [colorModal,  setColorModal]  = useState(false);
-  const [selDays,     setSelDays]     = useState(new Set(['1','2','3','4','5','6','7']));
+  const [form,       setForm]       = useState(defaultForm);
+  const [errors,     setErrors]     = useState({});
+  const [saving,     setSaving]     = useState(false);
+  const [loading,    setLoading]    = useState(isEdit);
+  const [iconModal,  setIconModal]  = useState(false);
+  const [colorModal, setColorModal] = useState(false);
+  const [selDays,    setSelDays]    = useState(new Set(['1','2','3','4','5','6','7']));
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => { if (isEdit) _loadHabit(); }, []);
@@ -51,6 +56,7 @@ const AddHabitScreen = ({ navigation, route }) => {
       setForm({
         name: h.name, type: h.type, icon: h.icon, color: h.color,
         frequency: h.frequency, days: h.days,
+        time_of_day: h.time_of_day || 'anytime',
         reminder_time: h.reminder_time || '', reminder_type: h.reminder_type,
         goal_days: h.goal_days ? String(h.goal_days) : '',
         punishment_sensitivity: h.punishment_sensitivity,
@@ -92,7 +98,7 @@ const AddHabitScreen = ({ navigation, route }) => {
   };
 
   const _save = async () => {
-    const errs = validateHabitForm({ ...form, days: form.frequency === 'specific_days' ? form.days : '1,2,3,4,5,6,7' });
+    const errs = validateHabitForm({ ...form });
     if (errs.length > 0) {
       const map = {};
       errs.forEach(m => {
@@ -127,7 +133,7 @@ const AddHabitScreen = ({ navigation, route }) => {
       }
 
       if (!isEdit) {
-        Alert.alert('🔱 Created', `"${form.name}" added. Day 1 starts now, Neel.`, [
+        Alert.alert('🔱 Created', `"${form.name}" added.\nDay 1 starts now, Neel.`, [
           { text: "Let's Go", onPress: () => navigation.goBack() }
         ]);
         return;
@@ -162,11 +168,7 @@ const AddHabitScreen = ({ navigation, route }) => {
   };
 
   if (loading) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.loadText}>Loading...</Text>
-      </View>
-    );
+    return <View style={styles.center}><Text style={styles.loadText}>Loading...</Text></View>;
   }
 
   const accent = form.type === 'build' ? Colors.gold : Colors.red;
@@ -175,7 +177,6 @@ const AddHabitScreen = ({ navigation, route }) => {
     <SafeAreaView style={styles.screen} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
           <Text style={styles.headerBtnText}>Cancel</Text>
@@ -196,14 +197,13 @@ const AddHabitScreen = ({ navigation, route }) => {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* General error */}
           {errors.general && (
             <View style={styles.errorBanner}>
               <Text style={styles.errorBannerText}>⚠️  {errors.general}</Text>
             </View>
           )}
 
-          {/* ── Type ── */}
+          {/* Type */}
           <Text style={styles.groupLabel}>HABIT TYPE</Text>
           <Animated.View style={[styles.group, { transform: [{ translateX: shakeAnim }] }]}>
             <View style={styles.typeRow}>
@@ -236,7 +236,7 @@ const AddHabitScreen = ({ navigation, route }) => {
             </View>
           </Animated.View>
 
-          {/* ── Name ── */}
+          {/* Name */}
           <Text style={styles.groupLabel}>NAME</Text>
           <View style={[styles.group, errors.name && styles.groupError]}>
             <TextInput
@@ -253,18 +253,15 @@ const AddHabitScreen = ({ navigation, route }) => {
           </View>
           {errors.name && <Text style={styles.fieldError}>{errors.name}</Text>}
 
-          {/* ── Icon & Color ── */}
+          {/* Icon & Color */}
           <Text style={styles.groupLabel}>APPEARANCE</Text>
           <View style={styles.group}>
-            {/* Preview */}
             <View style={styles.previewRow}>
               <View style={[styles.iconPreviewWrap, { backgroundColor: form.color + '25' }]}>
                 <Text style={styles.iconPreviewEmoji}>{form.icon}</Text>
               </View>
               <View style={styles.previewInfo}>
-                <Text style={styles.previewName} numberOfLines={1}>
-                  {form.name || 'Habit Preview'}
-                </Text>
+                <Text style={styles.previewName} numberOfLines={1}>{form.name || 'Habit Preview'}</Text>
                 <Text style={[styles.previewType, { color: accent }]}>
                   {form.type === 'build' ? '🟢 BUILD' : '🔴 BREAK'}
                 </Text>
@@ -288,23 +285,34 @@ const AddHabitScreen = ({ navigation, route }) => {
             </TouchableOpacity>
           </View>
 
-          {/* ── Frequency ── */}
-          <Text style={styles.groupLabel}>FREQUENCY</Text>
+          {/* Time of day — NEW in Phase B */}
+          <Text style={styles.groupLabel}>TIME OF DAY</Text>
           <View style={styles.group}>
-            {[
-              { key: 'daily', label: 'Every Day' },
-              { key: 'specific_days', label: 'Specific Days' },
-            ].map((f, i) => (
-              <View key={f.key}>
+            {TIME_OF_DAY_OPTIONS.map((t, i) => (
+              <View key={t.key}>
                 {i > 0 && <View style={styles.separator} />}
-                <TouchableOpacity
-                  style={styles.row}
-                  onPress={() => _set('frequency', f.key)}
-                >
-                  <Text style={styles.rowLabel}>{f.label}</Text>
-                  {form.frequency === f.key && (
+                <TouchableOpacity style={styles.row} onPress={() => _set('time_of_day', t.key)}>
+                  <View>
+                    <Text style={styles.rowLabel}>{t.label}</Text>
+                    <Text style={styles.rowDesc}>{t.desc}</Text>
+                  </View>
+                  {form.time_of_day === t.key && (
                     <Text style={[styles.checkmark, { color: accent }]}>✓</Text>
                   )}
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+
+          {/* Frequency */}
+          <Text style={styles.groupLabel}>FREQUENCY</Text>
+          <View style={styles.group}>
+            {[{ key: 'daily', label: 'Every Day' }, { key: 'specific_days', label: 'Specific Days' }].map((f, i) => (
+              <View key={f.key}>
+                {i > 0 && <View style={styles.separator} />}
+                <TouchableOpacity style={styles.row} onPress={() => _set('frequency', f.key)}>
+                  <Text style={styles.rowLabel}>{f.label}</Text>
+                  {form.frequency === f.key && <Text style={[styles.checkmark, { color: accent }]}>✓</Text>}
                 </TouchableOpacity>
               </View>
             ))}
@@ -334,7 +342,7 @@ const AddHabitScreen = ({ navigation, route }) => {
             </>
           )}
 
-          {/* ── Reminder ── */}
+          {/* Reminder */}
           <Text style={styles.groupLabel}>REMINDER</Text>
           <View style={styles.group}>
             {[
@@ -346,9 +354,7 @@ const AddHabitScreen = ({ navigation, route }) => {
                 {i > 0 && <View style={styles.separator} />}
                 <TouchableOpacity style={styles.row} onPress={() => _set('reminder_type', r.key)}>
                   <Text style={styles.rowLabel}>{r.label}</Text>
-                  {form.reminder_type === r.key && (
-                    <Text style={[styles.checkmark, { color: accent }]}>✓</Text>
-                  )}
+                  {form.reminder_type === r.key && <Text style={[styles.checkmark, { color: accent }]}>✓</Text>}
                 </TouchableOpacity>
               </View>
             ))}
@@ -364,46 +370,39 @@ const AddHabitScreen = ({ navigation, route }) => {
                   placeholder="Time  e.g.  06:00  or  21:30"
                   placeholderTextColor={Colors.textPlaceholder}
                   keyboardType="numbers-and-punctuation"
-                  maxLength={5}
-                  returnKeyType="done"
+                  maxLength={5} returnKeyType="done"
                 />
               </View>
               {errors.reminder_time && <Text style={styles.fieldError}>{errors.reminder_time}</Text>}
               {form.reminder_type === 'hard' && (
-                <Text style={styles.infoText}>
-                  ⏰  Opens your OnePlus Clock to create a real alarm. Rings even on silent.
-                </Text>
+                <Text style={styles.infoText}>⏰  Opens your OnePlus Clock to create a real alarm.</Text>
               )}
             </>
           )}
 
-          {/* ── Goal ── */}
+          {/* Goal */}
           <Text style={styles.groupLabel}>GOAL  (OPTIONAL)</Text>
           <View style={[styles.group, errors.goal_days && styles.groupError]}>
-            <View style={styles.row}>
-              <TextInput
-                style={[styles.nameInput, { flex: 1 }]}
-                value={form.goal_days}
-                onChangeText={v => _set('goal_days', v.replace(/[^0-9]/g, ''))}
-                placeholder="Number of days  e.g. 21  —  leave empty for forever"
-                placeholderTextColor={Colors.textPlaceholder}
-                keyboardType="number-pad"
-                maxLength={4}
-                returnKeyType="done"
-              />
-            </View>
+            <TextInput
+              style={styles.nameInput}
+              value={form.goal_days}
+              onChangeText={v => _set('goal_days', v.replace(/[^0-9]/g, ''))}
+              placeholder="Number of days  e.g. 21  —  leave empty for forever"
+              placeholderTextColor={Colors.textPlaceholder}
+              keyboardType="number-pad" maxLength={4} returnKeyType="done"
+            />
           </View>
           {errors.goal_days && <Text style={styles.fieldError}>{errors.goal_days}</Text>}
 
-          {/* ── Punishment (break only) ── */}
+          {/* Punishment */}
           {form.type === 'break' && (
             <>
               <Text style={styles.groupLabel}>PUNISHMENT LEVEL</Text>
               <View style={styles.group}>
                 {[
-                  { key: 'soft',     label: '🟢  Soft',     desc: 'Gentle nudges' },
-                  { key: 'balanced', label: '🟡  Balanced',  desc: 'Default — respectful escalation' },
-                  { key: 'harsh',    label: '🔴  Harsh',     desc: 'No mercy mode' },
+                  { key: 'soft',     label: '🟢  Soft',    desc: 'Gentle nudges' },
+                  { key: 'balanced', label: '🟡  Balanced', desc: 'Respectful escalation' },
+                  { key: 'harsh',    label: '🔴  Harsh',    desc: 'No mercy mode' },
                 ].map((p, i) => (
                   <View key={p.key}>
                     {i > 0 && <View style={styles.separator} />}
@@ -422,19 +421,12 @@ const AddHabitScreen = ({ navigation, route }) => {
             </>
           )}
 
-          {/* ── Save Button ── */}
+          {/* Save */}
           <TouchableOpacity
-            style={[styles.saveBtn, {
-              backgroundColor: accent,
-              opacity: saving ? 0.7 : 1,
-            }]}
-            onPress={_save}
-            disabled={saving}
-            activeOpacity={0.85}
+            style={[styles.saveBtn, { backgroundColor: accent, opacity: saving ? 0.7 : 1 }]}
+            onPress={_save} disabled={saving} activeOpacity={0.85}
           >
-            <Text style={[styles.saveBtnText, {
-              color: form.type === 'build' ? '#000' : Colors.white,
-            }]}>
+            <Text style={[styles.saveBtnText, { color: form.type === 'build' ? '#000' : Colors.white }]}>
               {saving ? 'Saving...' : isEdit ? 'Save Changes' : `Create ${form.type === 'build' ? 'Build' : 'Break'} Habit`}
             </Text>
           </TouchableOpacity>
@@ -450,9 +442,7 @@ const AddHabitScreen = ({ navigation, route }) => {
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>Choose Icon</Text>
             <FlatList
-              data={HabitIcons}
-              numColumns={8}
-              keyExtractor={item => item}
+              data={HabitIcons} numColumns={8} keyExtractor={item => item}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[styles.iconOption, item === form.icon && {
@@ -479,7 +469,7 @@ const AddHabitScreen = ({ navigation, route }) => {
                 <TouchableOpacity
                   key={color}
                   style={[styles.colorOption, { backgroundColor: color },
-                    color === form.color && styles.colorOptionSelected,
+                    color === form.color && styles.colorSelected,
                   ]}
                   onPress={() => { _set('color', color); setColorModal(false); }}
                 >
@@ -498,202 +488,78 @@ const styles = StyleSheet.create({
   screen:  { flex: 1, backgroundColor: Colors.background },
   center:  { flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center' },
   loadText:{ ...Typography.body, color: Colors.textMuted },
-
   header: {
-    flexDirection:     'row',
-    justifyContent:    'space-between',
-    alignItems:        'center',
-    paddingHorizontal: Spacing.xl,
-    paddingVertical:   Spacing.md,
-    borderBottomWidth:  1,
-    borderBottomColor:  Colors.separator,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md,
+    borderBottomWidth: 1, borderBottomColor: Colors.separator,
   },
   headerBtn:     { padding: Spacing.xs, minWidth: 64 },
   headerBtnText: { ...Typography.body, color: Colors.gold },
   headerTitle:   { ...Typography.headline, color: Colors.textPrimary },
-
   scroll:        { flex: 1 },
   scrollContent: { paddingVertical: Spacing.xl, gap: 0 },
-
   errorBanner: {
-    backgroundColor: Colors.redAlpha15,
-    borderRadius:    Radius.md,
-    padding:         Spacing.md,
-    marginHorizontal: Spacing.xl,
-    marginBottom:    Spacing.lg,
-    borderWidth:      1,
-    borderColor:     Colors.redAlpha25,
+    backgroundColor: Colors.redAlpha15, borderRadius: Radius.md,
+    padding: Spacing.md, marginHorizontal: Spacing.xl, marginBottom: Spacing.lg,
+    borderWidth: 1, borderColor: Colors.redAlpha25,
   },
   errorBannerText: { ...Typography.callout, color: Colors.red },
-
   groupLabel: {
-    ...Typography.caption2,
-    color:            Colors.textDim,
-    letterSpacing:    1.5,
-    marginHorizontal: Spacing.xl,
-    marginBottom:     Spacing.xs,
-    marginTop:        Spacing.xl,
+    ...Typography.caption2, color: Colors.textDim, letterSpacing: 1.5,
+    marginHorizontal: Spacing.xl, marginBottom: Spacing.xs, marginTop: Spacing.xl,
   },
   group: {
-    backgroundColor:  Colors.backgroundCard,
-    borderRadius:     Radius.lg,
-    marginHorizontal: Spacing.xl,
-    overflow:         'hidden',
-    borderWidth:       1,
-    borderColor:      Colors.separator,
+    backgroundColor: Colors.backgroundCard, borderRadius: Radius.lg,
+    marginHorizontal: Spacing.xl, overflow: 'hidden',
+    borderWidth: 1, borderColor: Colors.separator,
   },
-  groupError: { borderColor: Colors.red + '55' },
-
-  fieldError: {
-    ...Typography.caption1,
-    color:            Colors.red,
-    marginHorizontal: Spacing.xl + Spacing.xs,
-    marginTop:        Spacing.xs,
-  },
-
-  // Type toggle
-  typeRow: { flexDirection: 'row', gap: Spacing.md, padding: Spacing.md },
-  typeCard: {
-    flex:           1,
-    borderRadius:   Radius.md,
-    borderWidth:     1,
-    padding:        Spacing.lg,
-    alignItems:     'center',
-    gap:             Spacing.xs,
-  },
-  typeEmoji: { fontSize: 28 },
-  typeLabel: { ...Typography.headline },
-  typeDesc:  { ...Typography.caption2, color: Colors.textDim },
-
-  // Name input
-  nameInput: {
-    ...Typography.body,
-    color:   Colors.textPrimary,
-    padding: Spacing.lg,
-  },
-  charCount: {
-    ...Typography.caption2,
-    color:   Colors.textDim,
-    padding: Spacing.lg,
-    paddingTop: 0,
-  },
-
-  // Appearance
-  previewRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           Spacing.md,
-    padding:       Spacing.lg,
-  },
-  iconPreviewWrap: {
-    width: 52, height: 52, borderRadius: Radius.md,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  iconPreviewEmoji: { fontSize: 28 },
-  previewInfo:      { flex: 1, gap: 4 },
-  previewName:      { ...Typography.headline, color: Colors.textPrimary },
-  previewType:      { ...Typography.caption1, fontWeight: '700', letterSpacing: 1 },
-
-  // Row
+  groupError:  { borderColor: Colors.red + '55' },
+  fieldError:  { ...Typography.caption1, color: Colors.red, marginHorizontal: Spacing.xl + Spacing.xs, marginTop: Spacing.xs },
+  typeRow:     { flexDirection: 'row', gap: Spacing.md, padding: Spacing.md },
+  typeCard:    { flex: 1, borderRadius: Radius.md, borderWidth: 1, padding: Spacing.lg, alignItems: 'center', gap: Spacing.xs },
+  typeEmoji:   { fontSize: 28 },
+  typeLabel:   { ...Typography.headline },
+  typeDesc:    { ...Typography.caption2, color: Colors.textDim },
+  nameInput:   { ...Typography.body, color: Colors.textPrimary, padding: Spacing.lg },
+  charCount:   { ...Typography.caption2, color: Colors.textDim, padding: Spacing.lg, paddingTop: 0 },
+  previewRow:  { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.lg },
+  iconPreviewWrap: { width: 52, height: 52, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  iconPreviewEmoji:{ fontSize: 28 },
+  previewInfo: { flex: 1, gap: 4 },
+  previewName: { ...Typography.headline, color: Colors.textPrimary },
+  previewType: { ...Typography.caption1, fontWeight: '700', letterSpacing: 1 },
   row: {
-    flexDirection:  'row',
-    justifyContent: 'space-between',
-    alignItems:     'center',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical:   Spacing.lg,
-    minHeight:      52,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.lg, minHeight: 52,
   },
-  rowLabel: { ...Typography.callout, color: Colors.textPrimary },
-  rowDesc:  { ...Typography.caption1, color: Colors.textDim, marginTop: 3 },
-  rowRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  rowValue: { ...Typography.callout, color: Colors.textMuted },
-  rowArrow: { ...Typography.title3, color: Colors.textDim, fontWeight: '300' },
-  checkmark:{ ...Typography.callout, fontWeight: '700' },
-
-  colorDot: { width: 22, height: 22, borderRadius: 11 },
-  separator:{ height: 1, backgroundColor: Colors.separator, marginHorizontal: Spacing.lg },
-
-  // Days
-  daysRow: {
-    flexDirection:  'row',
-    flexWrap:       'wrap',
-    gap:             Spacing.sm,
-    padding:        Spacing.lg,
-  },
-  dayPill: {
-    borderRadius:      Radius.full,
-    borderWidth:        1,
-    paddingHorizontal: 14,
-    paddingVertical:    8,
-  },
-  dayPillText: { ...Typography.footnote, fontWeight: '600' },
-
-  // Time input
-  timeInput: {
-    ...Typography.body,
-    color:   Colors.textPrimary,
-    padding: Spacing.lg,
-    textAlign: 'center',
-    letterSpacing: 2,
-  },
-  infoText: {
-    ...Typography.caption1,
-    color:            Colors.gold,
-    marginHorizontal: Spacing.xl + Spacing.xs,
-    marginTop:        Spacing.xs,
-    lineHeight:       18,
-  },
-
-  // Save
-  saveBtn: {
-    marginHorizontal: Spacing.xl,
-    marginTop:        Spacing.xxl,
-    borderRadius:     Radius.lg,
-    paddingVertical:   18,
-    alignItems:       'center',
-  },
-  saveBtnText: { ...Typography.headline },
-
-  // Modals
+  rowLabel:  { ...Typography.callout, color: Colors.textPrimary },
+  rowDesc:   { ...Typography.caption1, color: Colors.textDim, marginTop: 3 },
+  rowRight:  { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  rowValue:  { ...Typography.callout, color: Colors.textMuted },
+  rowArrow:  { ...Typography.title3, color: Colors.textDim, fontWeight: '300' },
+  checkmark: { ...Typography.callout, fontWeight: '700' },
+  colorDot:  { width: 22, height: 22, borderRadius: 11 },
+  separator: { height: 1, backgroundColor: Colors.separator, marginHorizontal: Spacing.lg },
+  daysRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, padding: Spacing.lg },
+  dayPill:   { borderRadius: Radius.full, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8 },
+  dayPillText:{ ...Typography.footnote, fontWeight: '600' },
+  timeInput: { ...Typography.body, color: Colors.textPrimary, padding: Spacing.lg, textAlign: 'center', letterSpacing: 2 },
+  infoText:  { ...Typography.caption1, color: Colors.gold, marginHorizontal: Spacing.xl + Spacing.xs, marginTop: Spacing.xs, lineHeight: 18 },
+  saveBtn:   { marginHorizontal: Spacing.xl, marginTop: Spacing.xxl, borderRadius: Radius.lg, paddingVertical: 18, alignItems: 'center' },
+  saveBtnText:{ ...Typography.headline },
   modalOverlay: { flex: 1, backgroundColor: Colors.overlay90, justifyContent: 'flex-end' },
   modalSheet: {
-    backgroundColor:      Colors.backgroundCard,
-    borderTopLeftRadius:  Radius.xxl,
-    borderTopRightRadius: Radius.xxl,
-    padding:              Spacing.xl,
-    paddingBottom:        40,
-    maxHeight:            '65%',
+    backgroundColor: Colors.backgroundCard,
+    borderTopLeftRadius: Radius.xxl, borderTopRightRadius: Radius.xxl,
+    padding: Spacing.xl, paddingBottom: 40, maxHeight: '65%',
   },
-  modalHandle: {
-    width: 36, height: 4, borderRadius: 2,
-    backgroundColor: Colors.separator,
-    alignSelf: 'center', marginBottom: Spacing.lg,
-  },
-  modalTitle: {
-    ...Typography.title3, color: Colors.textPrimary,
-    textAlign: 'center', marginBottom: Spacing.xl,
-  },
-  iconOption: {
-    width: 44, height: 44, borderRadius: Radius.sm,
-    alignItems: 'center', justifyContent: 'center',
-    margin: 3, borderWidth: 1, borderColor: 'transparent',
-  },
-  colorGrid: {
-    flexDirection:  'row',
-    flexWrap:       'wrap',
-    gap:             16,
-    justifyContent: 'center',
-    paddingVertical: Spacing.lg,
-  },
-  colorOption: {
-    width: 48, height: 48, borderRadius: 24,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  colorOptionSelected: {
-    borderWidth: 3, borderColor: Colors.white,
-    transform: [{ scale: 1.15 }],
-  },
-  colorCheck: { color: '#000', fontSize: 18, fontWeight: '700' },
+  modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.separator, alignSelf: 'center', marginBottom: Spacing.lg },
+  modalTitle:  { ...Typography.title3, color: Colors.textPrimary, textAlign: 'center', marginBottom: Spacing.xl },
+  iconOption:  { width: 44, height: 44, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center', margin: 3, borderWidth: 1, borderColor: 'transparent' },
+  colorGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 16, justifyContent: 'center', paddingVertical: Spacing.lg },
+  colorOption: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  colorSelected:{ borderWidth: 3, borderColor: Colors.white, transform: [{ scale: 1.15 }] },
+  colorCheck:  { color: '#000', fontSize: 18, fontWeight: '700' },
 });
 
 export default AddHabitScreen;
