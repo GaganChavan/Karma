@@ -1,8 +1,5 @@
-// ─── KARMA APP — SETTINGS SCREEN (GITA PHASE A) ──────────────────────
-// Added: Identity statement field
-// Added: WhatsApp daily/weekly toggles
-// Added: Chariot framework in About
-// Added: Daily/Weekly WhatsApp send buttons
+// ─── KARMA APP — SETTINGS SCREEN (PHASE C) ───────────────────────────
+// Theme toggle now uses useTheme() — switches instantly, no restart.
 
 import React, { useState, useCallback } from 'react';
 import {
@@ -12,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView }   from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Colors, Typography, Spacing, Radius, setAppTheme } from '../constants/colors';
+import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
 import { getSetting, setSetting, getAllSettings } from '../database/habitService';
 import {
   cancelAllNotifications, scheduleAllHabitNotifications,
@@ -22,22 +19,18 @@ import { exportData, importData, clearAllData, getBackupInfo } from '../services
 import { getFullStats } from '../services/gamificationService';
 import { SHLOKAS } from '../constants/shlokas';
 import ShlokaDisplay from '../components/ShlokaDisplay';
-import {
-  sendDailyWhatsApp, sendWeeklyWhatsApp,
-} from '../services/whatsappService';
-import {
-  getAllHabits, getTodayCheckins,
-  getStreak,
-} from '../database/habitService';
+import { sendDailyWhatsApp, sendWeeklyWhatsApp } from '../services/whatsappService';
+import { getAllHabits, getTodayCheckins, getStreak } from '../database/habitService';
 
 const SettingsScreen = () => {
+  const { colors, isDark, toggleTheme } = useTheme();
+
   const [alterEgo,      setAlterEgo]      = useState('Neel');
   const [identityStmt,  setIdentityStmt]  = useState('');
   const [editingName,   setEditingName]   = useState(false);
   const [editingId,     setEditingId]     = useState(false);
   const [tempName,      setTempName]      = useState('');
   const [tempId,        setTempId]        = useState('');
-  const [isDark,        setIsDark]        = useState(true);
   const [notifEnabled,  setNotifEnabled]  = useState(true);
   const [waDaily,       setWaDaily]       = useState(true);
   const [waWeekly,      setWaWeekly]      = useState(true);
@@ -63,7 +56,6 @@ const SettingsScreen = () => {
       setTempName(settings.alter_ego || 'Neel');
       setIdentityStmt(settings.identity_statement || 'I am Neel. My mind holds the reins. The horses do not rule me.');
       setTempId(settings.identity_statement || '');
-      setIsDark((settings.app_theme || 'dark') === 'dark');
       setNotifEnabled(settings.notification_master !== 'false');
       setWaDaily(settings.wa_daily !== 'false');
       setWaWeekly(settings.wa_weekly !== 'false');
@@ -96,33 +88,31 @@ const SettingsScreen = () => {
       await setSetting('identity_statement', stmt);
       setIdentityStmt(stmt);
       setEditingId(false);
-      Alert.alert('✅ Identity Declared', 'Karma will show this to you every morning.');
+      Alert.alert('✅ Identity Declared', 'Karma will show this every morning.');
     } catch (err) { Alert.alert('Error', err.message); }
   };
 
+  // ── LIVE THEME TOGGLE ─────────────────────────────────────────────
   const _toggleTheme = async (value) => {
     try {
       const theme = value ? 'dark' : 'light';
       await setSetting('app_theme', theme);
-      setIsDark(value);
-      setAppTheme(theme);
-      Alert.alert(
-        value ? '🌙 Dark Mode' : '☀️ Light Mode',
-        'Restart the app to apply fully.'
-      );
-    } catch (err) { Alert.alert('Error', err.message); }
+      toggleTheme(value); // Updates ThemeContext → re-renders all screens instantly
+    } catch (err) {
+      Alert.alert('Error', err.message);
+    }
   };
 
   const _toggleNotif = async (value) => {
     try {
       await setSetting('notification_master', value ? 'true' : 'false');
       setNotifEnabled(value);
-      if (value) { await scheduleAllHabitNotifications(); }
-      else        { await cancelAllNotifications(); }
+      if (value) await scheduleAllHabitNotifications();
+      else       await cancelAllNotifications();
     } catch (err) { Alert.alert('Error', err.message); }
   };
 
-  const _toggleWaDaily  = async (v) => { await setSetting('wa_daily',  v ? 'true' : 'false'); setWaDaily(v);  };
+  const _toggleWaDaily  = async (v) => { await setSetting('wa_daily',  v ? 'true' : 'false'); setWaDaily(v); };
   const _toggleWaWeekly = async (v) => { await setSetting('wa_weekly', v ? 'true' : 'false'); setWaWeekly(v); };
 
   const _sendDailyNow = async () => {
@@ -137,14 +127,9 @@ const SettingsScreen = () => {
         try { streaks[h.id] = await getStreak(h.id); } catch {}
       }));
       await sendDailyWhatsApp({
-        alterEgo,
-        habits,
-        checkins: cMap,
-        streaks,
-        totalXP:    gamStats?.totalXP || 0,
-        todayXP:    0,
-        karmaScore: gamStats?.karmaScore || 0,
-        levelInfo:  gamStats?.levelInfo,
+        alterEgo, habits, checkins: cMap, streaks,
+        totalXP: gamStats?.totalXP || 0, todayXP: 0,
+        karmaScore: gamStats?.karmaScore || 0, levelInfo: gamStats?.levelInfo,
       });
     } catch (err) { Alert.alert('Error', err.message); }
     finally { setSendingWA(false); }
@@ -154,15 +139,11 @@ const SettingsScreen = () => {
     setSendingWA(true);
     try {
       await sendWeeklyWhatsApp({
-        alterEgo,
-        weeklyRate:  75,
-        topStreaks:  [],
-        totalXP:     gamStats?.totalXP || 0,
-        weekXP:      0,
-        karmaScore:  gamStats?.karmaScore || 0,
-        karmaScorePrev: 0,
-        levelInfo:   gamStats?.levelInfo,
-        weekNumber:  Math.ceil(new Date().getDate() / 7),
+        alterEgo, weeklyRate: 75, topStreaks: [],
+        totalXP: gamStats?.totalXP || 0, weekXP: 0,
+        karmaScore: gamStats?.karmaScore || 0, karmaScorePrev: 0,
+        levelInfo: gamStats?.levelInfo,
+        weekNumber: Math.ceil(new Date().getDate() / 7),
       });
     } catch (err) { Alert.alert('Error', err.message); }
     finally { setSendingWA(false); }
@@ -186,15 +167,14 @@ const SettingsScreen = () => {
   };
 
   const _clearData = () => {
-    Alert.alert(
-      '⚠️ Clear All Data',
-      'This permanently deletes all habits, streaks, and history.\n\nExport a backup first.',
+    Alert.alert('⚠️ Clear All Data',
+      'This permanently deletes all habits, streaks, and history.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Clear Everything', style: 'destructive',
           onPress: async () => {
-            try { await clearAllData(); _loadSettings(); Alert.alert('Cleared', 'Start fresh, Neel. The battlefield is clean.'); }
+            try { await clearAllData(); _loadSettings(); Alert.alert('Cleared', 'Start fresh, Neel.'); }
             catch (err) { Alert.alert('Error', err.message); }
           },
         },
@@ -204,227 +184,204 @@ const SettingsScreen = () => {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
-        <ActivityIndicator size="large" color={Colors.gold} />
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <ActivityIndicator size="large" color={colors.gold} />
       </View>
     );
   }
 
+  // Inline styles using live colors
+  const s = makeStyles(colors);
+
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Settings</Text>
+    <SafeAreaView style={s.screen} edges={['top']}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <View style={s.header}>
+        <Text style={s.headerTitle}>Settings</Text>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
 
-        {/* ── IDENTITY ── */}
-        <Text style={styles.groupLabel}>IDENTITY ON THE BATTLEFIELD</Text>
-        <View style={styles.group}>
-          {/* Alter ego name */}
+        {/* IDENTITY */}
+        <Text style={s.groupLabel}>IDENTITY ON THE BATTLEFIELD</Text>
+        <View style={s.group}>
           {!editingName ? (
-            <TouchableOpacity
-              style={styles.row}
-              onPress={() => { setTempName(alterEgo); setEditingName(true); }}
-            >
+            <TouchableOpacity style={s.row} onPress={() => { setTempName(alterEgo); setEditingName(true); }}>
               <View>
-                <Text style={styles.rowLabel}>Name</Text>
-                <Text style={styles.rowDesc}>Karma calls you by this name</Text>
+                <Text style={s.rowLabel}>Name</Text>
+                <Text style={s.rowDesc}>Karma calls you by this name</Text>
               </View>
-              <View style={styles.rowRight}>
-                <Text style={styles.rowValue}>{alterEgo}</Text>
-                <Text style={styles.rowArrow}>›</Text>
+              <View style={s.rowRight}>
+                <Text style={s.rowValue}>{alterEgo}</Text>
+                <Text style={s.rowArrow}>›</Text>
               </View>
             </TouchableOpacity>
           ) : (
-            <View style={styles.editRow}>
+            <View style={s.editRow}>
               <TextInput
-                style={styles.textInput}
+                style={s.textInput}
                 value={tempName}
                 onChangeText={setTempName}
                 maxLength={20}
                 autoFocus
                 returnKeyType="done"
                 onSubmitEditing={_saveAlterEgo}
-                placeholderTextColor={Colors.textPlaceholder}
+                placeholderTextColor={colors.textPlaceholder}
               />
-              <TouchableOpacity style={styles.saveBtn} onPress={_saveAlterEgo}>
-                <Text style={styles.saveBtnText}>Save</Text>
+              <TouchableOpacity style={s.saveBtn} onPress={_saveAlterEgo}>
+                <Text style={s.saveBtnText}>Save</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setEditingName(false)}>
-                <Text style={styles.cancelText}>Cancel</Text>
+                <Text style={s.cancelText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           )}
 
-          <View style={styles.separator} />
+          <View style={s.separator} />
 
-          {/* Identity declaration */}
           {!editingId ? (
-            <TouchableOpacity
-              style={styles.row}
-              onPress={() => { setTempId(identityStmt); setEditingId(true); }}
-            >
+            <TouchableOpacity style={s.row} onPress={() => { setTempId(identityStmt); setEditingId(true); }}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.rowLabel}>Morning Declaration</Text>
-                <Text style={styles.rowDesc} numberOfLines={2}>{identityStmt}</Text>
+                <Text style={s.rowLabel}>Morning Declaration</Text>
+                <Text style={s.rowDesc} numberOfLines={2}>{identityStmt}</Text>
               </View>
-              <Text style={styles.rowArrow}>›</Text>
+              <Text style={s.rowArrow}>›</Text>
             </TouchableOpacity>
           ) : (
-            <View style={styles.editIdSection}>
-              <Text style={styles.editIdLabel}>
-                Write who you are becoming. Shown every morning.
-              </Text>
+            <View style={s.editIdSection}>
+              <Text style={s.editIdLabel}>Write who you are becoming. Shown every morning.</Text>
               <TextInput
-                style={[styles.textInput, { height: 80, textAlignVertical: 'top' }]}
+                style={[s.textInput, { height: 80, textAlignVertical: 'top' }]}
                 value={tempId}
                 onChangeText={setTempId}
                 maxLength={120}
                 multiline
                 autoFocus
-                placeholderTextColor={Colors.textPlaceholder}
+                placeholderTextColor={colors.textPlaceholder}
                 placeholder="I am Neel. My mind holds the reins..."
               />
-              <View style={styles.editBtnRow}>
-                <TouchableOpacity style={styles.saveBtn} onPress={_saveIdentity}>
-                  <Text style={styles.saveBtnText}>Save Declaration</Text>
+              <View style={s.editBtnRow}>
+                <TouchableOpacity style={s.saveBtn} onPress={_saveIdentity}>
+                  <Text style={s.saveBtnText}>Save Declaration</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => setEditingId(false)}>
-                  <Text style={styles.cancelText}>Cancel</Text>
+                  <Text style={s.cancelText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             </View>
           )}
 
-          <View style={styles.separator} />
-
-          {/* Level and score — read only */}
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>Karma Level</Text>
-            <Text style={[styles.rowValue, { color: gamStats?.levelInfo?.color }]}>
+          <View style={s.separator} />
+          <View style={s.row}>
+            <Text style={s.rowLabel}>Karma Level</Text>
+            <Text style={[s.rowValue, { color: gamStats?.levelInfo?.color }]}>
               {gamStats?.levelInfo?.icon} {gamStats?.levelInfo?.title} · {gamStats?.totalXP} XP
             </Text>
           </View>
-          <View style={styles.separator} />
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>Karma Score</Text>
-            <Text style={[styles.rowValue, { color: Colors.gold }]}>
-              {gamStats?.karmaScore || 0}/1000
-            </Text>
+          <View style={s.separator} />
+          <View style={s.row}>
+            <Text style={s.rowLabel}>Karma Score</Text>
+            <Text style={[s.rowValue, { color: colors.gold }]}>{gamStats?.karmaScore || 0}/1000</Text>
           </View>
         </View>
 
-        {/* ── APPEARANCE ── */}
-        <Text style={styles.groupLabel}>APPEARANCE</Text>
-        <View style={styles.group}>
-          <View style={styles.row}>
+        {/* APPEARANCE — LIVE THEME TOGGLE */}
+        <Text style={s.groupLabel}>APPEARANCE</Text>
+        <View style={s.group}>
+          <View style={s.row}>
             <View>
-              <Text style={styles.rowLabel}>Dark Mode</Text>
-              <Text style={styles.rowDesc}>{isDark ? 'Dark — Kurukshetra at night' : 'Light — Dawn on the battlefield'}</Text>
+              <Text style={s.rowLabel}>
+                {isDark ? '🌙 Dark Mode' : '☀️ Light Mode'}
+              </Text>
+              <Text style={s.rowDesc}>
+                {isDark
+                  ? 'Kurukshetra at night — tap to switch to light'
+                  : 'Dawn on the battlefield — tap to switch to dark'
+                }
+              </Text>
             </View>
             <Switch
               value={isDark}
               onValueChange={_toggleTheme}
-              trackColor={{ false: Colors.separator, true: Colors.goldAlpha40 }}
-              thumbColor={isDark ? Colors.gold : Colors.textMuted}
+              trackColor={{ false: colors.separator, true: colors.goldAlpha40 }}
+              thumbColor={isDark ? colors.gold : colors.textMuted}
+              ios_backgroundColor={colors.backgroundElevated}
             />
           </View>
         </View>
 
-        {/* ── NOTIFICATIONS ── */}
-        <Text style={styles.groupLabel}>REMINDERS</Text>
-        <View style={styles.group}>
-          <View style={styles.row}>
+        {/* NOTIFICATIONS */}
+        <Text style={s.groupLabel}>REMINDERS</Text>
+        <View style={s.group}>
+          <View style={s.row}>
             <View>
-              <Text style={styles.rowLabel}>All Notifications</Text>
-              <Text style={styles.rowDesc}>Master switch — all habit reminders</Text>
+              <Text style={s.rowLabel}>All Notifications</Text>
+              <Text style={s.rowDesc}>Master switch for all habit reminders</Text>
             </View>
             <Switch
               value={notifEnabled}
               onValueChange={_toggleNotif}
-              trackColor={{ false: Colors.separator, true: Colors.goldAlpha40 }}
-              thumbColor={notifEnabled ? Colors.gold : Colors.textMuted}
+              trackColor={{ false: colors.separator, true: colors.goldAlpha40 }}
+              thumbColor={notifEnabled ? colors.gold : colors.textMuted}
+              ios_backgroundColor={colors.backgroundElevated}
             />
           </View>
         </View>
 
-        {/* ── WHATSAPP ── */}
-        <Text style={styles.groupLabel}>WHATSAPP REPORTS</Text>
-        <View style={styles.group}>
-          <View style={styles.row}>
+        {/* WHATSAPP */}
+        <Text style={s.groupLabel}>WHATSAPP REPORTS</Text>
+        <View style={s.group}>
+          <View style={s.row}>
             <View>
-              <Text style={styles.rowLabel}>Daily Report</Text>
-              <Text style={styles.rowDesc}>Send today's battlefield report</Text>
+              <Text style={s.rowLabel}>Daily Report</Text>
+              <Text style={s.rowDesc}>Today's battlefield summary</Text>
             </View>
             <Switch
               value={waDaily}
               onValueChange={_toggleWaDaily}
-              trackColor={{ false: Colors.separator, true: 'rgba(37,211,102,0.4)' }}
-              thumbColor={waDaily ? '#25D166' : Colors.textMuted}
+              trackColor={{ false: colors.separator, true: 'rgba(37,211,102,0.4)' }}
+              thumbColor={waDaily ? '#25D166' : colors.textMuted}
             />
           </View>
-          <View style={styles.separator} />
-          <View style={styles.row}>
+          <View style={s.separator} />
+          <View style={s.row}>
             <View>
-              <Text style={styles.rowLabel}>Weekly Report</Text>
-              <Text style={styles.rowDesc}>Sunday — full week summary</Text>
+              <Text style={s.rowLabel}>Weekly Report</Text>
+              <Text style={s.rowDesc}>Sunday — full week summary</Text>
             </View>
             <Switch
               value={waWeekly}
               onValueChange={_toggleWaWeekly}
-              trackColor={{ false: Colors.separator, true: 'rgba(37,211,102,0.4)' }}
-              thumbColor={waWeekly ? '#25D166' : Colors.textMuted}
+              trackColor={{ false: colors.separator, true: 'rgba(37,211,102,0.4)' }}
+              thumbColor={waWeekly ? '#25D166' : colors.textMuted}
             />
           </View>
-          <View style={styles.separator} />
-          <TouchableOpacity
-            style={styles.row}
-            onPress={_sendDailyNow}
-            disabled={sendingWA}
-          >
-            <Text style={styles.rowLabel}>Send Daily Now</Text>
-            {sendingWA
-              ? <ActivityIndicator size="small" color="#25D166" />
-              : <Text style={[styles.rowArrow, { color: '#25D166' }]}>↑</Text>
-            }
+          <View style={s.separator} />
+          <TouchableOpacity style={s.row} onPress={_sendDailyNow} disabled={sendingWA}>
+            <Text style={s.rowLabel}>Send Daily Now</Text>
+            {sendingWA ? <ActivityIndicator size="small" color="#25D166" /> : <Text style={[s.rowArrow, { color: '#25D166' }]}>↑</Text>}
           </TouchableOpacity>
-          <View style={styles.separator} />
-          <TouchableOpacity
-            style={styles.row}
-            onPress={_sendWeeklyNow}
-            disabled={sendingWA}
-          >
-            <Text style={styles.rowLabel}>Send Weekly Now</Text>
-            {sendingWA
-              ? <ActivityIndicator size="small" color="#25D166" />
-              : <Text style={[styles.rowArrow, { color: '#25D166' }]}>↑</Text>
-            }
+          <View style={s.separator} />
+          <TouchableOpacity style={s.row} onPress={_sendWeeklyNow} disabled={sendingWA}>
+            <Text style={s.rowLabel}>Send Weekly Now</Text>
+            {sendingWA ? <ActivityIndicator size="small" color="#25D166" /> : <Text style={[s.rowArrow, { color: '#25D166' }]}>↑</Text>}
           </TouchableOpacity>
         </View>
 
-        {/* ── PREFERENCES ── */}
-        <Text style={styles.groupLabel}>PREFERENCES</Text>
-        <View style={styles.group}>
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>Week Starts On</Text>
-            <View style={styles.segRow}>
+        {/* PREFERENCES */}
+        <Text style={s.groupLabel}>PREFERENCES</Text>
+        <View style={s.group}>
+          <View style={s.row}>
+            <Text style={s.rowLabel}>Week Starts On</Text>
+            <View style={s.segRow}>
               {['monday','sunday'].map(d => (
                 <TouchableOpacity
                   key={d}
-                  style={[styles.seg, weekStart === d && styles.segActive]}
-                  onPress={async () => {
-                    await setSetting('week_starts', d);
-                    setWeekStart(d);
-                  }}
+                  style={[s.seg, weekStart === d && s.segActive]}
+                  onPress={async () => { await setSetting('week_starts', d); setWeekStart(d); }}
                 >
-                  <Text style={[styles.segText, weekStart === d && styles.segTextActive]}>
+                  <Text style={[s.segText, weekStart === d && s.segTextActive]}>
                     {d === 'monday' ? 'Mon' : 'Sun'}
                   </Text>
                 </TouchableOpacity>
@@ -433,69 +390,68 @@ const SettingsScreen = () => {
           </View>
         </View>
 
-        {/* ── DATA ── */}
-        <Text style={styles.groupLabel}>DATA & BACKUP</Text>
-        <View style={styles.group}>
+        {/* DATA */}
+        <Text style={s.groupLabel}>DATA & BACKUP</Text>
+        <View style={s.group}>
           {backupInfo && (
             <>
-              <View style={styles.backupInfoRow}>
-                <Text style={styles.backupInfoText}>
+              <View style={s.backupInfoRow}>
+                <Text style={s.backupInfoText}>
                   {backupInfo.habitCount} habits · {backupInfo.entryCount} entries · ~{backupInfo.sizeKB}KB
                 </Text>
               </View>
-              <View style={styles.separator} />
+              <View style={s.separator} />
             </>
           )}
-          <TouchableOpacity style={styles.row} onPress={_export} disabled={exporting}>
+          <TouchableOpacity style={s.row} onPress={_export} disabled={exporting}>
             <View>
-              <Text style={styles.rowLabel}>{exporting ? 'Exporting...' : 'Export Backup'}</Text>
-              <Text style={styles.rowDesc}>Save all karma as JSON file</Text>
+              <Text style={s.rowLabel}>{exporting ? 'Exporting...' : 'Export Backup'}</Text>
+              <Text style={s.rowDesc}>Save all karma as JSON</Text>
             </View>
-            {exporting ? <ActivityIndicator size="small" color={Colors.gold} /> : <Text style={[styles.rowArrow, { color: Colors.gold }]}>↑</Text>}
+            {exporting ? <ActivityIndicator size="small" color={colors.gold} /> : <Text style={[s.rowArrow, { color: colors.gold }]}>↑</Text>}
           </TouchableOpacity>
-          <View style={styles.separator} />
-          <TouchableOpacity style={styles.row} onPress={_import} disabled={importing}>
+          <View style={s.separator} />
+          <TouchableOpacity style={s.row} onPress={_import} disabled={importing}>
             <View>
-              <Text style={styles.rowLabel}>{importing ? 'Importing...' : 'Import & Restore'}</Text>
-              <Text style={styles.rowDesc}>Restore from backup file</Text>
+              <Text style={s.rowLabel}>{importing ? 'Importing...' : 'Import & Restore'}</Text>
+              <Text style={s.rowDesc}>Restore from backup file</Text>
             </View>
-            {importing ? <ActivityIndicator size="small" color={Colors.blue} /> : <Text style={[styles.rowArrow, { color: Colors.blue }]}>↓</Text>}
+            {importing ? <ActivityIndicator size="small" color={colors.blue} /> : <Text style={[s.rowArrow, { color: colors.blue }]}>↓</Text>}
           </TouchableOpacity>
-          <View style={styles.separator} />
-          <TouchableOpacity style={styles.row} onPress={_clearData}>
+          <View style={s.separator} />
+          <TouchableOpacity style={s.row} onPress={_clearData}>
             <View>
-              <Text style={[styles.rowLabel, { color: Colors.red }]}>Clear All Data</Text>
-              <Text style={styles.rowDesc}>Permanently delete everything</Text>
+              <Text style={[s.rowLabel, { color: colors.red }]}>Clear All Data</Text>
+              <Text style={s.rowDesc}>Permanently delete everything</Text>
             </View>
-            <Text style={[styles.rowArrow, { color: Colors.red }]}>›</Text>
+            <Text style={[s.rowArrow, { color: colors.red }]}>›</Text>
           </TouchableOpacity>
         </View>
 
-        {/* ── ABOUT — Chariot ── */}
-        <Text style={styles.groupLabel}>THE KURUKSHETRA WITHIN</Text>
-        <View style={[styles.group, { padding: Spacing.xl, gap: Spacing.lg }]}>
+        {/* ABOUT */}
+        <Text style={s.groupLabel}>THE KURUKSHETRA WITHIN</Text>
+        <View style={[s.group, { padding: Spacing.xl, gap: Spacing.lg }]}>
           {SHLOKAS.chariot.lines.map((line, i) => (
-            <View key={i} style={styles.chariotRow}>
-              <Text style={styles.chariotLabel}>{line.label}</Text>
-              <Text style={styles.chariotDesc}>{line.desc}</Text>
+            <View key={i} style={s.chariotRow}>
+              <Text style={s.chariotLabel}>{line.label}</Text>
+              <Text style={s.chariotDesc}>{line.desc}</Text>
             </View>
           ))}
-          <View style={styles.separator} />
-          <Text style={styles.chariotClosing}>{SHLOKAS.chariot.closing}</Text>
+          <View style={s.separator} />
+          <Text style={s.chariotClosing}>{SHLOKAS.chariot.closing}</Text>
           <ShlokaDisplay shloka={SHLOKAS.identity[0]} variant="card" />
         </View>
 
-        {/* ── VERSION ── */}
-        <Text style={styles.groupLabel}>ABOUT</Text>
-        <View style={styles.group}>
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>App</Text>
-            <Text style={styles.rowValue}>Karma ☸ v1.0</Text>
+        <Text style={s.groupLabel}>ABOUT</Text>
+        <View style={s.group}>
+          <View style={s.row}>
+            <Text style={s.rowLabel}>App</Text>
+            <Text style={s.rowValue}>Karma ☸ v1.0</Text>
           </View>
-          <View style={styles.separator} />
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>Built for</Text>
-            <Text style={[styles.rowValue, { color: Colors.gold }]}>{alterEgo}</Text>
+          <View style={s.separator} />
+          <View style={s.row}>
+            <Text style={s.rowLabel}>Built for</Text>
+            <Text style={[s.rowValue, { color: colors.gold }]}>{alterEgo}</Text>
           </View>
         </View>
 
@@ -505,66 +461,59 @@ const SettingsScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  screen:        { flex: 1, backgroundColor: Colors.background },
-  center:        { flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center' },
-  header:        { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, borderBottomWidth: 1, borderBottomColor: Colors.separator },
-  headerTitle:   { ...Typography.title2, color: Colors.textPrimary },
+// Dynamic styles based on live colors
+const makeStyles = (colors) => StyleSheet.create({
+  screen:        { flex: 1, backgroundColor: colors.background },
+  header:        { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.separator },
+  headerTitle:   { ...Typography.title2, color: colors.textPrimary },
   scroll:        { flex: 1 },
   scrollContent: { paddingVertical: Spacing.xl },
   groupLabel: {
-    ...Typography.caption2, color: Colors.textDim, letterSpacing: 1.5,
+    ...Typography.caption2, color: colors.textDim, letterSpacing: 1.5,
     marginHorizontal: Spacing.xl, marginBottom: Spacing.xs, marginTop: Spacing.lg,
   },
   group: {
-    backgroundColor: Colors.backgroundCard, borderRadius: Radius.lg,
+    backgroundColor: colors.backgroundCard, borderRadius: Radius.lg,
     marginHorizontal: Spacing.xl, overflow: 'hidden',
-    borderWidth: 1, borderColor: Colors.separator,
+    borderWidth: 1, borderColor: colors.separator,
   },
-  separator: { height: 1, backgroundColor: Colors.separator, marginHorizontal: Spacing.lg },
+  separator: { height: 1, backgroundColor: colors.separator, marginHorizontal: Spacing.lg },
   row: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: Spacing.lg, paddingVertical: Spacing.lg, minHeight: 54,
   },
-  rowLabel:  { ...Typography.callout, color: Colors.textPrimary },
-  rowDesc:   { ...Typography.caption1, color: Colors.textDim, marginTop: 3 },
+  rowLabel:  { ...Typography.callout, color: colors.textPrimary },
+  rowDesc:   { ...Typography.caption1, color: colors.textDim, marginTop: 3 },
   rowRight:  { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  rowValue:  { ...Typography.callout, color: Colors.textMuted },
-  rowArrow:  { ...Typography.title3, color: Colors.textDim, fontWeight: '300' },
-
-  editRow:       { flexDirection: 'row', alignItems: 'center', padding: Spacing.md, gap: Spacing.sm },
+  rowValue:  { ...Typography.callout, color: colors.textMuted },
+  rowArrow:  { ...Typography.title3, color: colors.textDim, fontWeight: '300' },
+  editRow:   { flexDirection: 'row', alignItems: 'center', padding: Spacing.md, gap: Spacing.sm },
   editIdSection: { padding: Spacing.lg, gap: Spacing.md },
-  editIdLabel:   { ...Typography.caption1, color: Colors.textDim },
+  editIdLabel:   { ...Typography.caption1, color: colors.textDim },
   editBtnRow:    { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   textInput: {
-    flex: 1, ...Typography.callout, color: Colors.textPrimary,
-    backgroundColor: Colors.backgroundElevated, borderRadius: Radius.md,
+    flex: 1, ...Typography.callout, color: colors.textPrimary,
+    backgroundColor: colors.backgroundElevated, borderRadius: Radius.md,
     paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2,
-    borderWidth: 1, borderColor: Colors.separator,
+    borderWidth: 1, borderColor: colors.separator,
   },
-  saveBtn:      { backgroundColor: Colors.gold, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 10 },
+  saveBtn:      { backgroundColor: colors.gold, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 10 },
   saveBtnText:  { ...Typography.footnote, color: '#000', fontWeight: '700' },
-  cancelText:   { ...Typography.footnote, color: Colors.textMuted },
-
+  cancelText:   { ...Typography.footnote, color: colors.textMuted },
   segRow: {
-    flexDirection: 'row', backgroundColor: Colors.backgroundElevated,
+    flexDirection: 'row', backgroundColor: colors.backgroundElevated,
     borderRadius: Radius.md, padding: 2, gap: 2,
   },
   seg:           { paddingHorizontal: 14, paddingVertical: 7, borderRadius: Radius.sm },
-  segActive:     { backgroundColor: Colors.backgroundCard },
-  segText:       { ...Typography.footnote, color: Colors.textMuted },
-  segTextActive: { ...Typography.footnote, color: Colors.textPrimary, fontWeight: '600' },
-
-  backupInfoRow: {
-    backgroundColor: Colors.goldAlpha15,
-    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
-  },
-  backupInfoText: { ...Typography.caption1, color: Colors.gold },
-
+  segActive:     { backgroundColor: colors.backgroundCard },
+  segText:       { ...Typography.footnote, color: colors.textMuted },
+  segTextActive: { ...Typography.footnote, color: colors.textPrimary, fontWeight: '600' },
+  backupInfoRow: { backgroundColor: colors.goldAlpha15, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
+  backupInfoText:{ ...Typography.caption1, color: colors.gold },
   chariotRow:    { flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start' },
-  chariotLabel:  { ...Typography.subheadline, color: Colors.gold, fontWeight: '700', minWidth: 100 },
-  chariotDesc:   { ...Typography.subheadline, color: Colors.textMuted, flex: 1, lineHeight: 22 },
-  chariotClosing:{ ...Typography.callout, color: Colors.gold, fontStyle: 'italic', textAlign: 'center' },
+  chariotLabel:  { ...Typography.subheadline, color: colors.gold, fontWeight: '700', minWidth: 100 },
+  chariotDesc:   { ...Typography.subheadline, color: colors.textMuted, flex: 1, lineHeight: 22 },
+  chariotClosing:{ ...Typography.callout, color: colors.gold, fontStyle: 'italic', textAlign: 'center' },
 });
 
 export default SettingsScreen;

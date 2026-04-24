@@ -1,27 +1,29 @@
-// ─── KARMA APP — NAVIGATION (PHASE B) ────────────────────────────────
-// Added: MoodLogScreen
-// Added: WeeklyReflectionScreen
+// ─── KARMA APP — NAVIGATION (PHASE C FINAL) ──────────────────────────
+// Theme-aware via useTheme() — tab bar switches instantly with theme.
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator }     from '@react-navigation/stack';
-import { Colors, Typography }  from '../constants/colors';
-import HomeScreen              from '../screens/HomeScreen';
-import AddHabitScreen          from '../screens/AddHabitScreen';
-import HabitDetailScreen       from '../screens/HabitDetailScreen';
-import CelebrationScreen       from '../screens/CelebrationScreen';
-import StatsScreen             from '../screens/StatsScreen';
-import HistoryScreen           from '../screens/HistoryScreen';
-import HabitsScreen            from '../screens/HabitsScreen';
-import SettingsScreen          from '../screens/SettingsScreen';
-import MoodLogScreen           from '../screens/MoodLogScreen';
-import WeeklyReflectionScreen  from '../screens/WeeklyReflectionScreen';
+import { useTheme, Typography }     from '../constants/colors';
+
+import HomeScreen             from '../screens/HomeScreen';
+import AddHabitScreen         from '../screens/AddHabitScreen';
+import HabitDetailScreen      from '../screens/HabitDetailScreen';
+import CelebrationScreen      from '../screens/CelebrationScreen';
+import StatsScreen            from '../screens/StatsScreen';
+import HistoryScreen          from '../screens/HistoryScreen';
+import HabitsScreen           from '../screens/HabitsScreen';
+import SettingsScreen         from '../screens/SettingsScreen';
+import MoodLogScreen          from '../screens/MoodLogScreen';
+import WeeklyReflectionScreen from '../screens/WeeklyReflectionScreen';
 
 const Tab   = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
 const KarmaTabBar = ({ state, navigation }) => {
+  const { colors } = useTheme();
+
   const tabs = [
     { name: 'Home',     label: 'Home' },
     { name: 'Habits',   label: 'Habits' },
@@ -31,7 +33,10 @@ const KarmaTabBar = ({ state, navigation }) => {
   ];
 
   return (
-    <View style={styles.tabBar}>
+    <View style={[styles.tabBar, {
+      backgroundColor: colors.navBg || (colors.isDark ? 'rgba(0,0,0,0.96)' : 'rgba(242,242,247,0.97)'),
+      borderTopColor:  colors.separator,
+    }]}>
       {tabs.map((tab) => {
         if (tab.isCenter) {
           return (
@@ -41,7 +46,10 @@ const KarmaTabBar = ({ state, navigation }) => {
               onPress={() => navigation.navigate('AddHabit')}
               activeOpacity={0.85}
             >
-              <View style={styles.centerBtn}>
+              <View style={[styles.centerBtn, {
+                backgroundColor: colors.gold,
+                shadowColor:     colors.gold,
+              }]}>
                 <Text style={styles.centerIcon}>+</Text>
               </View>
             </TouchableOpacity>
@@ -58,8 +66,13 @@ const KarmaTabBar = ({ state, navigation }) => {
             onPress={() => { if (routeIndex >= 0) navigation.navigate(tab.name); }}
             activeOpacity={0.7}
           >
-            <View style={[styles.tabInner, isFocused && styles.tabInnerActive]}>
-              <Text style={[styles.tabLabel, isFocused && styles.tabLabelActive]}>
+            <View style={[styles.tabInner, isFocused && {
+              backgroundColor: colors.goldAlpha15,
+            }]}>
+              <Text style={[styles.tabLabel, {
+                color:      isFocused ? colors.gold : colors.textDim,
+                fontWeight: isFocused ? '700' : '500',
+              }]}>
                 {tab.label}
               </Text>
             </View>
@@ -71,7 +84,10 @@ const KarmaTabBar = ({ state, navigation }) => {
 };
 
 const TabNavigator = () => (
-  <Tab.Navigator tabBar={props => <KarmaTabBar {...props} />} screenOptions={{ headerShown: false }}>
+  <Tab.Navigator
+    tabBar={props => <KarmaTabBar {...props} />}
+    screenOptions={{ headerShown: false }}
+  >
     <Tab.Screen name="Home"     component={HomeScreen} />
     <Tab.Screen name="Habits"   component={HabitsScreen} />
     <Tab.Screen name="AddTab"   component={HomeScreen} />
@@ -96,26 +112,13 @@ const AppNavigator = () => (
 );
 
 const styles = StyleSheet.create({
-  tabBar: {
-    flexDirection:    'row',
-    backgroundColor:   Colors.isDark !== false ? 'rgba(0,0,0,0.96)' : 'rgba(242,242,247,0.97)',
-    borderTopWidth:    1, borderTopColor: Colors.separator,
-    paddingBottom:     Platform.OS === 'ios' ? 24 : 10,
-    paddingTop:        12, paddingHorizontal: 8, alignItems: 'center',
-  },
-  tab:            { flex: 1, alignItems: 'center' },
-  tabInner:       { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  tabInnerActive: { backgroundColor: Colors.goldAlpha15 },
-  tabLabel:       { ...Typography.caption1, color: Colors.textDim, fontWeight: '500' },
-  tabLabelActive: { color: Colors.gold, fontWeight: '700' },
-  centerWrap:     { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: -18 },
-  centerBtn: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: Colors.gold, alignItems: 'center', justifyContent: 'center',
-    shadowColor: Colors.gold, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4, shadowRadius: 10, elevation: 8,
-  },
-  centerIcon: { fontSize: 28, color: '#000', fontWeight: '300', lineHeight: 30 },
+  tabBar:      { flexDirection: 'row', borderTopWidth: 1, paddingBottom: Platform.OS === 'ios' ? 24 : 10, paddingTop: 12, paddingHorizontal: 8, alignItems: 'center' },
+  tab:         { flex: 1, alignItems: 'center' },
+  tabInner:    { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  tabLabel:    { ...Typography.caption1 },
+  centerWrap:  { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: -18 },
+  centerBtn:   { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 },
+  centerIcon:  { fontSize: 28, color: '#000', fontWeight: '300', lineHeight: 30 },
 });
 
 export default AppNavigator;

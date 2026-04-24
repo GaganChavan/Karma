@@ -1,58 +1,38 @@
-// ─── KARMA APP — ROOT (GITA PHASE A) ─────────────────────────────────
-// Flow: Splash → Identity Declaration → Main App
-// Identity screen shown once per day.
+// ─── KARMA APP — ROOT (PHASE C) ──────────────────────────────────────
+// ThemeProvider wraps everything — live theme switching, no restart.
+// Flow: Splash → Identity → App
 
 import React, { useState, useEffect, useRef } from 'react';
-import { NavigationContainer }  from '@react-navigation/native';
-import { StatusBar }            from 'expo-status-bar';
-import { SafeAreaProvider }     from 'react-native-safe-area-context';
-import * as Notifications       from 'expo-notifications';
-import ErrorBoundary            from './src/components/ErrorBoundary';
-import SplashScreen             from './src/screens/SplashScreen';
-import IdentityScreen           from './src/screens/IdentityScreen';
-import AppNavigator             from './src/navigation/AppNavigator';
-import { Colors, setAppTheme }  from './src/constants/colors';
-import {
-  configureNotifications,
-  scheduleAllHabitNotifications,
-} from './src/services/notificationService';
+import { NavigationContainer }      from '@react-navigation/native';
+import { StatusBar }                from 'expo-status-bar';
+import { SafeAreaProvider }         from 'react-native-safe-area-context';
+import * as Notifications           from 'expo-notifications';
+import ErrorBoundary                from './src/components/ErrorBoundary';
+import SplashScreen                 from './src/screens/SplashScreen';
+import IdentityScreen               from './src/screens/IdentityScreen';
+import AppNavigator                 from './src/navigation/AppNavigator';
+import { ThemeProvider, useTheme, updateStaticColors } from './src/constants/ThemeContext';
+import { configureNotifications, scheduleAllHabitNotifications } from './src/services/notificationService';
 import { getDatabase }  from './src/database/database';
-import { getSetting }   from './src/database/habitService';
+import { getSetting, setSetting }   from './src/database/habitService';
 
 configureNotifications();
 
-const PHASE = {
-  SPLASH:   'splash',
-  IDENTITY: 'identity',
-  APP:      'app',
-};
+const PHASE = { SPLASH: 'splash', IDENTITY: 'identity', APP: 'app' };
 
-export default function App() {
-  const [phase,   setPhase]   = useState(PHASE.SPLASH);
-  const navRef                 = useRef(null);
-  const responseListenerRef    = useRef(null);
+// Inner component has access to ThemeProvider
+const AppInner = () => {
+  const { colors, isDark, toggleTheme } = useTheme();
+  const [phase,  setPhase]  = useState(PHASE.SPLASH);
+  const navRef               = useRef(null);
+  const responseListenerRef  = useRef(null);
+
+  // Keep static Colors in sync for non-React files
+  useEffect(() => {
+    updateStaticColors(colors);
+  }, [colors]);
 
   useEffect(() => {
-    _applyTheme();
-    _setupNotifListener();
-    return () => {
-      if (responseListenerRef.current) {
-        Notifications.removeNotificationSubscription(responseListenerRef.current);
-      }
-    };
-  }, []);
-
-  const _applyTheme = async () => {
-    try {
-      await getDatabase();
-      const theme = await getSetting('app_theme');
-      setAppTheme(theme || 'dark');
-    } catch {
-      setAppTheme('dark');
-    }
-  };
-
-  const _setupNotifListener = () => {
     responseListenerRef.current = Notifications.addNotificationResponseReceivedListener(
       response => {
         try {
@@ -65,7 +45,12 @@ export default function App() {
         }
       }
     );
-  };
+    return () => {
+      if (responseListenerRef.current) {
+        Notifications.removeNotificationSubscription(responseListenerRef.current);
+      }
+    };
+  }, []);
 
   const _handleSplashReady = async () => {
     try {
@@ -73,16 +58,10 @@ export default function App() {
     } catch (err) {
       console.warn('Could not schedule notifications:', err.message);
     }
-
-    // Check if identity screen was shown today
     try {
       const lastShown = await getSetting('identity_shown_date');
       const today     = new Date().toISOString().split('T')[0];
-      if (lastShown !== today) {
-        setPhase(PHASE.IDENTITY);
-      } else {
-        setPhase(PHASE.APP);
-      }
+      setPhase(lastShown !== today ? PHASE.IDENTITY : PHASE.APP);
     } catch {
       setPhase(PHASE.IDENTITY);
     }
@@ -91,47 +70,75 @@ export default function App() {
   const _handleIdentityDismiss = async () => {
     try {
       const today = new Date().toISOString().split('T')[0];
-      const { setSetting } = require('./src/database/habitService');
       await setSetting('identity_shown_date', today);
     } catch {}
     setPhase(PHASE.APP);
   };
 
   const navTheme = {
-    dark: Colors.isDark !== false,
+    dark: isDark,
     colors: {
-      primary:      Colors.gold,
-      background:   Colors.background,
-      card:         Colors.backgroundCard,
-      text:         Colors.textPrimary,
-      border:       Colors.separator,
-      notification: Colors.gold,
+      primary:      colors.gold,
+      background:   colors.background,
+      card:         colors.backgroundCard,
+      text:         colors.textPrimary,
+      border:       colors.separator,
+      notification: colors.gold,
     },
   };
 
   return (
+    <>
+      <StatusBar
+        style={isDark ? 'light' : 'dark'}
+        backgroundColor="transparent"
+        translucent
+      />
+
+      {phase === PHASE.SPLASH && (
+        <SplashScreen onReady={_handleSplashReady} />
+      )}
+
+      {phase === PHASE.IDENTITY && (
+        <IdentityScreen onDismiss={_handleIdentityDismiss} />
+      )}
+
+      {phase === PHASE.APP && (
+        <NavigationContainer theme={navTheme} ref={navRef}>
+          <AppNavigator toggleTheme={toggleTheme} />
+        </NavigationContainer>
+      )}
+    </>
+  );
+};
+
+// Root reads saved theme before rendering
+export default function App() {
+  const [initialTheme, setInitialTheme] = useState(null);
+
+  useEffect(() => {
+    _loadTheme();
+  }, []);
+
+  const _loadTheme = async () => {
+    try {
+      await getDatabase();
+      const saved = await getSetting('app_theme');
+      setInitialTheme(saved || 'dark');
+    } catch {
+      setInitialTheme('dark');
+    }
+  };
+
+  // Wait until theme loaded to avoid flash
+  if (!initialTheme) return null;
+
+  return (
     <ErrorBoundary>
       <SafeAreaProvider>
-        <StatusBar
-          style={Colors.isDark !== false ? 'light' : 'dark'}
-          backgroundColor="transparent"
-          translucent
-        />
-
-        {phase === PHASE.SPLASH && (
-          <SplashScreen onReady={_handleSplashReady} />
-        )}
-
-        {phase === PHASE.IDENTITY && (
-          <IdentityScreen onDismiss={_handleIdentityDismiss} />
-        )}
-
-        {phase === PHASE.APP && (
-          <NavigationContainer theme={navTheme} ref={navRef}>
-            <AppNavigator />
-          </NavigationContainer>
-        )}
-
+        <ThemeProvider initialTheme={initialTheme}>
+          <AppInner />
+        </ThemeProvider>
       </SafeAreaProvider>
     </ErrorBoundary>
   );
