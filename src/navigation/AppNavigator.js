@@ -1,5 +1,5 @@
-// ─── KARMA APP — NAVIGATION (PHASE C FINAL) ──────────────────────────
-// Theme-aware via useTheme() — tab bar switches instantly with theme.
+// ─── KARMA APP — NAVIGATION (PHASE D — FINAL) ────────────────────────
+// All screens wired. This is the complete Karma app.
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
@@ -17,6 +17,9 @@ import HabitsScreen           from '../screens/HabitsScreen';
 import SettingsScreen         from '../screens/SettingsScreen';
 import MoodLogScreen          from '../screens/MoodLogScreen';
 import WeeklyReflectionScreen from '../screens/WeeklyReflectionScreen';
+import WFOModeScreen          from '../screens/WFOModeScreen';
+import NeuralProgressScreen   from '../screens/NeuralProgressScreen';
+import BeforeNowScreen        from '../screens/BeforeNowScreen';
 
 const Tab   = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -34,7 +37,7 @@ const KarmaTabBar = ({ state, navigation }) => {
 
   return (
     <View style={[styles.tabBar, {
-      backgroundColor: colors.navBg || (colors.isDark ? 'rgba(0,0,0,0.96)' : 'rgba(242,242,247,0.97)'),
+      backgroundColor: colors.isDark !== false ? 'rgba(0,0,0,0.96)' : 'rgba(242,242,247,0.97)',
       borderTopColor:  colors.separator,
     }]}>
       {tabs.map((tab) => {
@@ -46,10 +49,7 @@ const KarmaTabBar = ({ state, navigation }) => {
               onPress={() => navigation.navigate('AddHabit')}
               activeOpacity={0.85}
             >
-              <View style={[styles.centerBtn, {
-                backgroundColor: colors.gold,
-                shadowColor:     colors.gold,
-              }]}>
+              <View style={[styles.centerBtn, { backgroundColor: colors.gold, shadowColor: colors.gold }]}>
                 <Text style={styles.centerIcon}>+</Text>
               </View>
             </TouchableOpacity>
@@ -66,9 +66,7 @@ const KarmaTabBar = ({ state, navigation }) => {
             onPress={() => { if (routeIndex >= 0) navigation.navigate(tab.name); }}
             activeOpacity={0.7}
           >
-            <View style={[styles.tabInner, isFocused && {
-              backgroundColor: colors.goldAlpha15,
-            }]}>
+            <View style={[styles.tabInner, isFocused && { backgroundColor: colors.goldAlpha15 }]}>
               <Text style={[styles.tabLabel, {
                 color:      isFocused ? colors.gold : colors.textDim,
                 fontWeight: isFocused ? '700' : '500',
@@ -84,10 +82,7 @@ const KarmaTabBar = ({ state, navigation }) => {
 };
 
 const TabNavigator = () => (
-  <Tab.Navigator
-    tabBar={props => <KarmaTabBar {...props} />}
-    screenOptions={{ headerShown: false }}
-  >
+  <Tab.Navigator tabBar={props => <KarmaTabBar {...props} />} screenOptions={{ headerShown: false }}>
     <Tab.Screen name="Home"     component={HomeScreen} />
     <Tab.Screen name="Habits"   component={HabitsScreen} />
     <Tab.Screen name="AddTab"   component={HomeScreen} />
@@ -96,18 +91,30 @@ const TabNavigator = () => (
   </Tab.Navigator>
 );
 
+// ── COMPLETE SCREEN REGISTRY ──────────────────────────────────────────
+
 const AppNavigator = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
+    {/* Core */}
     <Stack.Screen name="Main"             component={TabNavigator} />
+    <Stack.Screen name="HabitDetail"      component={HabitDetailScreen} />
+    <Stack.Screen name="History"          component={HistoryScreen} />
+
+    {/* Modals */}
     <Stack.Screen name="AddHabit"         component={AddHabitScreen}
       options={{ presentation: 'modal', gestureEnabled: true }} />
-    <Stack.Screen name="HabitDetail"      component={HabitDetailScreen} />
     <Stack.Screen name="Celebration"      component={CelebrationScreen}
       options={{ presentation: 'modal', gestureEnabled: false }} />
-    <Stack.Screen name="History"          component={HistoryScreen} />
     <Stack.Screen name="MoodLog"          component={MoodLogScreen}
       options={{ presentation: 'modal', gestureEnabled: true }} />
+
+    {/* Phase B */}
     <Stack.Screen name="WeeklyReflection" component={WeeklyReflectionScreen} />
+
+    {/* Phase D — Final */}
+    <Stack.Screen name="WFOMode"          component={WFOModeScreen} />
+    <Stack.Screen name="NeuralProgress"   component={NeuralProgressScreen} />
+    <Stack.Screen name="BeforeNow"        component={BeforeNowScreen} />
   </Stack.Navigator>
 );
 

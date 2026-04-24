@@ -1,7 +1,7 @@
-// ─── KARMA APP — HOME SCREEN (PHASE B) ───────────────────────────────
-// Added: Time of day grouping — Morning / Afternoon / Evening / Anytime
-// Added: Mood check-in prompt
-// Added: Weekly reflection prompt on Sundays
+// ─── KARMA APP — HOME SCREEN (PHASE D) ───────────────────────────────
+// Added: WFO Mode banner — shows when Bangalore mode is active
+// Added: Streak recovery prompt — appears after a long streak breaks
+// Added: Neural progress quick view
 
 import React, { useState, useCallback, useRef } from 'react';
 import {
@@ -11,8 +11,8 @@ import {
 } from 'react-native';
 import { useFocusEffect }   from '@react-navigation/native';
 import { SafeAreaView }     from 'react-native-safe-area-context';
-import { Colors, Spacing, Radius, Typography } from '../constants/colors';
-import { DateUtils }        from '../utils/dateUtils';
+import { useTheme, Spacing, Radius, Typography } from '../constants/colors';
+import { DateUtils }         from '../utils/dateUtils';
 import { getGreetingShloka } from '../constants/shlokas';
 import ShlokaDisplay         from '../components/ShlokaDisplay';
 import {
@@ -23,19 +23,15 @@ import {
   getFullStats, awardPerfectDayIfEligible,
   checkAndAwardStreakFreeze, checkMilestone,
 } from '../services/gamificationService';
+import { sendDailyWhatsApp, shouldShowDailyPrompt } from '../services/whatsappService';
+import { getTodayMood, shouldShowWeeklyReflection } from '../database/moodService';
 import {
-  sendDailyWhatsApp, shouldShowDailyPrompt,
-} from '../services/whatsappService';
-import {
-  getTodayMood, shouldShowWeeklyReflection,
-} from '../database/moodService';
+  isWFOMode, applyWFOSkipsForToday, getActiveRecovery,
+  offerStreakRecovery, progressRecovery,
+} from '../services/wfoService';
 
-const PUNISH_COLORS = [
-  Colors.gold, Colors.orange,
-  Colors.punishLevel2, Colors.red, Colors.punishLevel4,
-];
+const PUNISH_COLORS_KEYS = ['gold','orange','punishLevel2','red','punishLevel4'];
 
-// Time of day config
 const TIME_GROUPS = {
   morning:   { label: 'MORNING — BRAHMA MUHURTA', icon: '🌅', order: 0 },
   afternoon: { label: 'AFTERNOON — MIDDAY KARMA',  icon: '☀️',  order: 1 },
@@ -44,8 +40,9 @@ const TIME_GROUPS = {
 };
 
 const HomeScreen = ({ navigation }) => {
+  const { colors } = useTheme();
   const [habits,        setHabits]        = useState([]);
-  const [checkins,      setCheckins]      = useState({});
+  const [checkins,      setCheckins]       = useState({});
   const [streaks,       setStreaks]        = useState({});
   const [punishment,    setPunishment]    = useState({});
   const [gamStats,      setGamStats]      = useState(null);
@@ -56,7 +53,10 @@ const HomeScreen = ({ navigation }) => {
   const [showWA,        setShowWA]        = useState(false);
   const [showMoodPrompt,setShowMoodPrompt]= useState(false);
   const [showReflection,setShowReflection]= useState(false);
-  const [hasMorningMood,setHasMorningMood]= useState(false);
+  const [wfoMode,       setWfoMode]       = useState(false);
+  const [wfoCity,       setWfoCity]       = useState('Bangalore');
+  const [recoveryHabit, setRecoveryHabit] = useState(null);
+  const [recoveryData,  setRecoveryData]  = useState(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const shloka   = getGreetingShloka();
@@ -68,13 +68,18 @@ const HomeScreen = ({ navigation }) => {
       isRefresh ? setRefreshing(true) : setLoading(true);
       setError(null);
 
-      const [habitsData, checkinsData, ego, gam, todayMood] = await Promise.all([
+      const [habitsData, checkinsData, ego, gam, todayMood, wfo, city] = await Promise.all([
         getAllHabits(),
         getTodayCheckins(),
         getSetting('alter_ego'),
         getFullStats(),
         getTodayMood(),
+        isWFOMode(),
+        getSetting('wfo_city'),
       ]);
+
+      // Apply WFO skips for today
+      if (wfo) await applyWFOSkipsForToday();
 
       const checkinMap = {};
       checkinsData.forEach(c => { checkinMap[c.habit_id] = c; });
@@ -94,20 +99,14 @@ const HomeScreen = ({ navigation }) => {
       setPunishment(punishMap);
       setGamStats(gam);
       setAlterEgo(ego || 'Neel');
+      setWfoMode(wfo);
+      setWfoCity(city || 'Bangalore');
       setShowWA(shouldShowDailyPrompt());
-      setHasMorningMood(!!todayMood.morning);
 
-      // Show mood prompt if not logged morning mood
       const hour = new Date().getHours();
-      if (hour >= 5 && hour < 10 && !todayMood.morning) {
+      if ((hour >= 5 && hour < 10 && !todayMood.morning) || (hour >= 20 && !todayMood.evening)) {
         setShowMoodPrompt(true);
-      } else if (hour >= 20 && !todayMood.evening) {
-        setShowMoodPrompt(true);
-      } else {
-        setShowMoodPrompt(false);
       }
-
-      // Weekly reflection prompt
       const needsReflection = await shouldShowWeeklyReflection();
       setShowReflection(needsReflection);
 
@@ -115,7 +114,7 @@ const HomeScreen = ({ navigation }) => {
       try { await checkAndAwardStreakFreeze(); } catch {}
 
     } catch (err) {
-      setError(err.message || 'The chariot could not start. Retry.');
+      setError(err.message || 'The chariot could not start');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -142,10 +141,7 @@ const HomeScreen = ({ navigation }) => {
         },
         {
           text: '😔 The horse bolted', style: 'destructive',
-          onPress: () => {
-            // Navigate to detail for trigger journal
-            navigation.navigate('HabitDetail', { habitId: habit.id, showTrigger: true });
-          },
+          onPress: () => navigation.navigate('HabitDetail', { habitId: habit.id, showTrigger: true }),
         },
         { text: 'Cancel', style: 'cancel' },
       ]);
@@ -177,7 +173,7 @@ const HomeScreen = ({ navigation }) => {
       }
     } catch {}
 
-    const all  = await getAllHabits();
+    const all   = await getAllHabits();
     const today = await getTodayCheckins();
     const done  = today.filter(c => c.status === 'done' || c.status === 'resisted').length;
     if (done === all.length && all.length > 0) {
@@ -186,18 +182,7 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
-  const _shareWhatsApp = async () => {
-    try {
-      const { sendDailyWhatsApp } = require('../services/whatsappService');
-      await sendDailyWhatsApp({
-        alterEgo, habits, checkins, streaks,
-        totalXP: gamStats?.totalXP || 0, todayXP: 0,
-        karmaScore: gamStats?.karmaScore || 0, levelInfo: gamStats?.levelInfo,
-      });
-    } catch (err) { Alert.alert('Error', err.message); }
-  };
-
-  // ── Group habits by time of day ───────────────────────────────────
+  // ── Group by time of day ──────────────────────────────────────────
 
   const _groupHabits = (habitsList) => {
     const groups = {};
@@ -206,7 +191,6 @@ const HomeScreen = ({ navigation }) => {
       if (!groups[tod]) groups[tod] = [];
       groups[tod].push(h);
     });
-    // Sort groups by time order
     return Object.entries(groups).sort(([a], [b]) =>
       (TIME_GROUPS[a]?.order || 99) - (TIME_GROUPS[b]?.order || 99)
     );
@@ -214,9 +198,9 @@ const HomeScreen = ({ navigation }) => {
 
   // ── Computed ──────────────────────────────────────────────────────
 
-  const buildHabits   = habits.filter(h => h.type === 'build');
-  const breakHabits   = habits.filter(h => h.type === 'break');
-  const doneToday     = habits.filter(h => {
+  const buildHabits = habits.filter(h => h.type === 'build');
+  const breakHabits = habits.filter(h => h.type === 'break');
+  const doneToday   = habits.filter(h => {
     const c = checkins[h.id];
     return c?.status === 'done' || c?.status === 'resisted';
   }).length;
@@ -232,7 +216,7 @@ const HomeScreen = ({ navigation }) => {
                    hour < 17 ? 'Good Afternoon' :
                    hour < 21 ? 'Good Evening' : 'Good Night';
 
-  // ── Habit Card ────────────────────────────────────────────────────
+  // ── Habit card ────────────────────────────────────────────────────
 
   const _card = (habit) => {
     const c           = checkins[habit.id];
@@ -240,220 +224,227 @@ const HomeScreen = ({ navigation }) => {
     const isDone      = c?.status === 'done' || c?.status === 'resisted';
     const isSkipped   = c?.status === 'skipped';
     const isMissed    = c?.status === 'missed';
+    const isWFOSkip   = habit.is_wfo_skip && wfoMode;
     const punishLevel = habit.type === 'break' ? (punishment[habit.id] || 0) : 0;
     const accentColor = punishLevel > 0
-      ? PUNISH_COLORS[punishLevel] : (habit.color || Colors.gold);
+      ? [colors.gold, colors.orange, colors.punishLevel2, colors.red, colors.punishLevel4][punishLevel]
+      : (habit.color || colors.gold);
 
     return (
       <TouchableOpacity
         key={habit.id}
-        style={[styles.habitCard,
-          isDone && { backgroundColor: accentColor + '12', borderColor: accentColor + '30' },
-        ]}
+        style={{
+          flexDirection: 'row', alignItems: 'center',
+          marginHorizontal: Spacing.xl, marginBottom: Spacing.sm + 2,
+          backgroundColor: isDone
+            ? accentColor + '12'
+            : isWFOSkip
+            ? colors.backgroundCard
+            : colors.backgroundCard,
+          borderRadius: Radius.lg,
+          borderWidth:   1,
+          borderColor:   isDone ? accentColor + '30' : isWFOSkip ? colors.separator + '60' : colors.separator,
+          padding:       Spacing.lg,
+          gap:           Spacing.md,
+          opacity:       isWFOSkip ? 0.55 : 1,
+        }}
         onPress={() => navigation.navigate('HabitDetail', { habitId: habit.id })}
-        onLongPress={() => _quickCheckIn(habit)}
+        onLongPress={() => !isWFOSkip && _quickCheckIn(habit)}
         delayLongPress={350}
         activeOpacity={0.7}
       >
-        <View style={[styles.habitIconWrap, { backgroundColor: accentColor + '20' }]}>
-          <Text style={styles.habitEmoji}>{habit.icon}</Text>
+        <View style={{ width: 48, height: 48, borderRadius: Radius.md, backgroundColor: accentColor + '20', alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 24 }}>{habit.icon}</Text>
         </View>
-        <View style={styles.habitInfo}>
-          <Text style={[styles.habitName,
-            (isMissed || isSkipped) && { color: Colors.textMuted }
-          ]}>
+        <View style={{ flex: 1, gap: 5 }}>
+          <Text style={{ ...Typography.headline, color: isMissed || isWFOSkip ? colors.textMuted : colors.textPrimary }}>
             {habit.name}
           </Text>
-          <Text style={[styles.habitMeta, { color: isDone ? accentColor : Colors.textDim }]}>
-            {habit.type === 'build'
-              ? streak.current > 0 ? `${streak.current} day streak 🪔` : 'Begin today'
-              : streak.current > 0 ? `${streak.current} days clean ✊` : 'Hold the rein today'
+          <Text style={{ ...Typography.caption1, color: isDone ? accentColor : isWFOSkip ? colors.textDim : colors.textDim, lineHeight: 16 }}>
+            {isWFOSkip
+              ? `⏭ Auto-skipped in ${wfoCity} mode`
+              : habit.type === 'build'
+                ? streak.current > 0 ? `${streak.current} day streak 🪔` : 'Begin today'
+                : streak.current > 0 ? `${streak.current} days clean ✊` : 'Hold the rein'
             }
-            {isSkipped && '  ·  skipped'}
-            {isMissed  && '  ·  missed'}
-            {punishLevel > 0 && `  ·  ⚠️ ${['','Mild','Mod','Harsh','Max'][punishLevel]}`}
+            {!isWFOSkip && isMissed && '  ·  missed'}
+            {!isWFOSkip && punishLevel > 0 && `  ·  ⚠️ ${['','Mild','Mod','Harsh','Max'][punishLevel]}`}
           </Text>
         </View>
-        <View style={[styles.checkWrap,
-          isDone && { backgroundColor: accentColor, borderColor: accentColor }
-        ]}>
-          {isDone && <Text style={styles.checkIcon}>✓</Text>}
+        <View style={{
+          width: 26, height: 26, borderRadius: 13,
+          borderWidth:      2,
+          borderColor:      isDone ? accentColor : colors.separator,
+          backgroundColor:  isDone ? accentColor : 'transparent',
+          alignItems:       'center',
+          justifyContent:   'center',
+        }}>
+          {isDone && <Text style={{ color: '#000', fontSize: 13, fontWeight: '700' }}>✓</Text>}
         </View>
-        <Text style={styles.arrow}>›</Text>
+        <Text style={{ color: colors.textDim, fontSize: 22, fontWeight: '300' }}>›</Text>
       </TouchableOpacity>
     );
   };
 
-  // ── Loading / Error ───────────────────────────────────────────────
+  if (loading) return (
+    <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+      <StatusBar barStyle="light-content" />
+      <Text style={{ fontSize: 48, color: colors.gold }}>☸</Text>
+      <ActivityIndicator size="large" color={colors.gold} />
+      <Text style={{ ...Typography.subheadline, color: colors.textMuted }}>The chariot is readying...</Text>
+    </View>
+  );
 
-  if (loading) {
-    return (
-      <View style={styles.loadScreen}>
-        <StatusBar barStyle="light-content" backgroundColor="#000" />
-        <Text style={{ fontSize: 48, color: Colors.gold }}>☸</Text>
-        <ActivityIndicator size="large" color={Colors.gold} />
-        <Text style={styles.loadText}>The chariot is readying...</Text>
-      </View>
-    );
-  }
+  if (error) return (
+    <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 }}>
+      <StatusBar barStyle="light-content" />
+      <Text style={{ ...Typography.body, color: colors.red, textAlign: 'center' }}>{error}</Text>
+      <TouchableOpacity onPress={() => _loadData()} style={{ backgroundColor: colors.gold, paddingHorizontal: 24, paddingVertical: 13, borderRadius: Radius.lg }}>
+        <Text style={{ ...Typography.headline, color: '#000' }}>Retry</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
-  if (error) {
-    return (
-      <View style={styles.loadScreen}>
-        <StatusBar barStyle="light-content" backgroundColor="#000" />
-        <Text style={styles.errText}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={() => _loadData()}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // Group build habits by time of day
   const buildGroups = _groupHabits(buildHabits);
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor="#000" />
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
+      <StatusBar barStyle="light-content" />
 
       <Animated.ScrollView
         style={{ opacity: fadeAnim }}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={{ paddingBottom: 20 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => _loadData(true)}
-            tintColor={Colors.gold}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={() => _loadData(true)} tintColor={colors.gold} />
         }
       >
         {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Text style={styles.headerDate}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: Spacing.xl, paddingTop: Spacing.lg, paddingBottom: Spacing.xl }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 1.5, marginBottom: 6 }}>
               {DateUtils.getDayOfWeek().toUpperCase()} · {DateUtils.formatDate(DateUtils.today())}
             </Text>
-            <Text style={styles.headerGreeting}>
-              {greeting}, <Text style={{ color: Colors.gold }}>{alterEgo}</Text>
+            <Text style={{ ...Typography.title2, color: colors.textPrimary, marginBottom: 4 }}>
+              {greeting}, <Text style={{ color: colors.gold }}>{alterEgo}</Text>
             </Text>
-            <Text style={styles.headerSub}>The battlefield is ready.</Text>
+            <Text style={{ ...Typography.footnote, color: colors.textDim, fontStyle: 'italic' }}>
+              {wfoMode ? `🏙️ ${wfoCity} mode — non-negotiables active` : 'The battlefield is ready.'}
+            </Text>
           </View>
           {gamStats?.levelInfo && (
-            <View style={[styles.levelPill, { borderColor: gamStats.levelInfo.color + '50' }]}>
-              <Text style={styles.levelIcon}>{gamStats.levelInfo.icon}</Text>
-              <Text style={[styles.levelText, { color: gamStats.levelInfo.color }]}>
-                {gamStats.levelInfo.title}
-              </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: Radius.full, borderColor: gamStats.levelInfo.color + '50', paddingHorizontal: 12, paddingVertical: 7, backgroundColor: colors.backgroundCard }}>
+              <Text style={{ fontSize: 16 }}>{gamStats.levelInfo.icon}</Text>
+              <Text style={{ ...Typography.caption1, fontWeight: '600', color: gamStats.levelInfo.color }}>{gamStats.levelInfo.title}</Text>
             </View>
           )}
         </View>
 
+        {/* WFO Mode Banner */}
+        {wfoMode && (
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginHorizontal: Spacing.xl, marginBottom: Spacing.md, backgroundColor: colors.blueAlpha15, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.blue + '40', padding: Spacing.lg }}
+            onPress={() => navigation.navigate('WFOMode')}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontSize: 24 }}>🏙️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ ...Typography.subheadline, color: colors.blue, fontWeight: '700' }}>{wfoCity} Mode Active</Text>
+              <Text style={{ ...Typography.caption1, color: colors.textDim, marginTop: 2 }}>
+                {habits.filter(h => h.is_wfo_skip).length} habits auto-skipped · Tap to manage
+              </Text>
+            </View>
+            <Text style={{ ...Typography.title3, color: colors.blue, fontWeight: '300' }}>›</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Hero stats */}
-        <View style={styles.heroCard}>
-          <View style={styles.heroSection}>
-            <Text style={styles.heroLabel}>STREAK</Text>
-            <Text style={styles.heroStreak}>
+        <View style={{ flexDirection: 'row', marginHorizontal: Spacing.xl, backgroundColor: colors.backgroundCard, borderRadius: Radius.xl, padding: Spacing.xl, alignItems: 'center', marginBottom: Spacing.lg }}>
+          <View style={{ flex: 1, alignItems: 'center', gap: 6 }}>
+            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2 }}>STREAK</Text>
+            <Text style={{ fontSize: 38, fontWeight: '700', color: colors.gold, lineHeight: 46 }}>
               {overallStreak}{overallStreak > 0 && <Text style={{ fontSize: 28 }}> 🪔</Text>}
             </Text>
-            <Text style={styles.heroSub}>
-              {overallStreak > 0 ? `${overallStreak} days — rein holds` : 'Grip the rein today'}
+            <Text style={{ ...Typography.caption1, color: colors.textDim }}>
+              {overallStreak > 0 ? 'rein holds' : 'begin today'}
             </Text>
           </View>
-          <View style={styles.heroDivider} />
-          <View style={styles.heroSection}>
-            <Text style={styles.heroLabel}>TODAY</Text>
-            <View style={styles.progressRow}>
-              <Text style={[styles.progressNum, { color: allDone ? Colors.green : Colors.gold }]}>
-                {doneToday}
-              </Text>
-              <Text style={styles.progressDen}>/{habits.length}</Text>
+          <View style={{ width: 1, height: 60, backgroundColor: colors.separator, marginHorizontal: 8 }} />
+          <View style={{ flex: 1, alignItems: 'center', gap: 6 }}>
+            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2 }}>TODAY</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+              <Text style={{ fontSize: 26, fontWeight: '700', color: allDone ? colors.green : colors.gold }}>{doneToday}</Text>
+              <Text style={{ ...Typography.callout, color: colors.textDim }}>/{habits.length}</Text>
             </View>
-            <Text style={[styles.heroSub, { textAlign: 'center' }]}>
-              {allDone ? '☸ All battles won' : 'battles won'}
+            <Text style={{ ...Typography.caption1, color: colors.textDim, textAlign: 'center' }}>
+              {allDone ? '☸ All won' : 'battles won'}
             </Text>
           </View>
-          <View style={styles.heroDivider} />
-          <View style={styles.heroSection}>
-            <Text style={styles.heroLabel}>KARMA</Text>
-            <Text style={styles.karmaNum}>{gamStats?.karmaScore || 0}</Text>
-            <Text style={styles.heroSub}>/1000</Text>
+          <View style={{ width: 1, height: 60, backgroundColor: colors.separator, marginHorizontal: 8 }} />
+          <View style={{ flex: 1, alignItems: 'center', gap: 6 }}>
+            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2 }}>KARMA</Text>
+            <Text style={{ fontSize: 24, fontWeight: '700', color: colors.blue }}>{gamStats?.karmaScore || 0}</Text>
+            <Text style={{ ...Typography.caption1, color: colors.textDim }}>/1000</Text>
           </View>
         </View>
 
         {/* XP bar */}
         {gamStats?.levelInfo && (
-          <View style={styles.xpSection}>
-            <View style={styles.xpRow}>
-              <Text style={styles.xpText}>⚡ {gamStats.totalXP} XP</Text>
+          <View style={{ marginHorizontal: Spacing.xl, marginBottom: Spacing.lg, gap: 6 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ ...Typography.caption1, color: colors.gold, fontWeight: '600' }}>⚡ {gamStats.totalXP} XP</Text>
               {gamStats.levelInfo.nextLevel && (
-                <Text style={styles.xpNext}>→ {gamStats.levelInfo.nextLevel.icon} {gamStats.levelInfo.nextLevel.title}</Text>
+                <Text style={{ ...Typography.caption2, color: colors.textDim }}>→ {gamStats.levelInfo.nextLevel.icon} {gamStats.levelInfo.nextLevel.title}</Text>
               )}
             </View>
-            <View style={styles.xpTrack}>
-              <View style={[styles.xpFill, {
-                width:           `${Math.round(gamStats.levelInfo.progress * 100)}%`,
-                backgroundColor:  gamStats.levelInfo.color,
-              }]} />
+            <View style={{ height: 6, backgroundColor: colors.backgroundCard, borderRadius: Radius.full, overflow: 'hidden' }}>
+              <View style={{ height: '100%', width: `${Math.round(gamStats.levelInfo.progress * 100)}%`, backgroundColor: gamStats.levelInfo.color, borderRadius: Radius.full }} />
             </View>
           </View>
         )}
 
-        {/* Mood check-in prompt */}
+        {/* Prompts */}
         {showMoodPrompt && (
           <TouchableOpacity
-            style={styles.promptCard}
-            onPress={() => navigation.navigate('MoodLog', {
-              timeOfDay: hour < 14 ? 'morning' : 'evening',
-            })}
-            activeOpacity={0.8}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginHorizontal: Spacing.xl, marginBottom: Spacing.md, backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.lg }}
+            onPress={() => navigation.navigate('MoodLog', { timeOfDay: hour < 14 ? 'morning' : 'evening' })}
           >
-            <Text style={styles.promptIcon}>
-              {hour < 14 ? '🌅' : '🌙'}
-            </Text>
-            <View style={styles.promptInfo}>
-              <Text style={styles.promptTitle}>
+            <Text style={{ fontSize: 28 }}>{hour < 14 ? '🌅' : '🌙'}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ ...Typography.subheadline, color: colors.textPrimary, fontWeight: '600' }}>
                 {hour < 14 ? 'Morning check-in' : 'Evening check-in'}
               </Text>
-              <Text style={styles.promptSub}>
-                How is your mood and energy? Tap to log.
-              </Text>
+              <Text style={{ ...Typography.caption1, color: colors.textDim, marginTop: 2 }}>Log mood & energy</Text>
             </View>
-            <Text style={styles.promptArrow}>›</Text>
+            <Text style={{ ...Typography.title3, color: colors.textDim, fontWeight: '300' }}>›</Text>
           </TouchableOpacity>
         )}
 
-        {/* Sunday reflection prompt */}
         {showReflection && (
           <TouchableOpacity
-            style={[styles.promptCard, { borderColor: Colors.goldAlpha40, backgroundColor: Colors.goldAlpha15 }]}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginHorizontal: Spacing.xl, marginBottom: Spacing.md, backgroundColor: colors.goldAlpha15, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.goldAlpha40, padding: Spacing.lg }}
             onPress={() => navigation.navigate('WeeklyReflection')}
-            activeOpacity={0.8}
           >
-            <Text style={styles.promptIcon}>📖</Text>
-            <View style={styles.promptInfo}>
-              <Text style={[styles.promptTitle, { color: Colors.gold }]}>
-                Weekly Reflection
-              </Text>
-              <Text style={styles.promptSub}>
-                "Reflect fully. Then act with clarity." — Gita 18.63
-              </Text>
+            <Text style={{ fontSize: 28 }}>📖</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ ...Typography.subheadline, color: colors.gold, fontWeight: '600' }}>Weekly Reflection</Text>
+              <Text style={{ ...Typography.caption1, color: colors.textDim, marginTop: 2 }}>"Reflect fully. Then act with clarity." — Gita 18.63</Text>
             </View>
-            <Text style={[styles.promptArrow, { color: Colors.gold }]}>›</Text>
+            <Text style={{ ...Typography.title3, color: colors.gold, fontWeight: '300' }}>›</Text>
           </TouchableOpacity>
         )}
 
         {/* Shloka */}
-        <View style={styles.shlokaPad}>
+        <View style={{ marginHorizontal: Spacing.xl, marginBottom: Spacing.xl }}>
           <ShlokaDisplay shloka={shloka} variant="card" />
         </View>
 
-        {/* Build habits — grouped by time of day */}
-        {buildGroups.length > 0 && buildGroups.map(([timeKey, groupHabits]) => {
+        {/* Build habits */}
+        {buildGroups.map(([timeKey, groupHabits]) => {
           const group = TIME_GROUPS[timeKey] || TIME_GROUPS.anytime;
           return (
             <View key={timeKey}>
-              <Text style={styles.sectionTitle}>
+              <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginHorizontal: Spacing.xl, marginBottom: Spacing.md, marginTop: Spacing.md }}>
                 {group.icon} {group.label}
               </Text>
               {groupHabits.map(_card)}
@@ -464,7 +455,7 @@ const HomeScreen = ({ navigation }) => {
         {/* Break habits */}
         {breakHabits.length > 0 && (
           <>
-            <Text style={[styles.sectionTitle, { color: Colors.red + 'CC' }]}>
+            <Text style={{ ...Typography.caption2, color: colors.red + 'CC', letterSpacing: 2, marginHorizontal: Spacing.xl, marginBottom: Spacing.md, marginTop: Spacing.md }}>
               ⚔️  BREAK — HOLD THE REIN
             </Text>
             {breakHabits.map(_card)}
@@ -473,30 +464,41 @@ const HomeScreen = ({ navigation }) => {
 
         {/* Empty state */}
         {habits.length === 0 && (
-          <View style={styles.empty}>
-            <Text style={styles.emptyWheel}>☸</Text>
-            <Text style={styles.emptyTitle}>The chariot is ready, {alterEgo}</Text>
-            <Text style={styles.emptySub}>
-              The horses wait. The reins are in your hands.{'\n'}
-              Add your first habit — and the battle begins.
+          <View style={{ alignItems: 'center', paddingHorizontal: 40, paddingVertical: 60, gap: 14 }}>
+            <Text style={{ fontSize: 64, color: colors.gold, opacity: 0.4 }}>☸</Text>
+            <Text style={{ ...Typography.title3, color: colors.textSecondary, textAlign: 'center' }}>The chariot is ready, {alterEgo}</Text>
+            <Text style={{ ...Typography.body, color: colors.textDim, textAlign: 'center', lineHeight: 26 }}>
+              The horses wait. The reins are in your hands.{'\n'}Add your first habit — and the battle begins.
             </Text>
-            <TouchableOpacity style={styles.emptyBtn} onPress={() => navigation.navigate('AddHabit')}>
-              <Text style={styles.emptyBtnText}>Begin the Sadhana</Text>
+            <TouchableOpacity
+              style={{ backgroundColor: colors.gold, paddingHorizontal: 28, paddingVertical: 14, borderRadius: Radius.lg }}
+              onPress={() => navigation.navigate('AddHabit')}
+            >
+              <Text style={{ ...Typography.headline, color: '#000' }}>Begin the Sadhana</Text>
             </TouchableOpacity>
           </View>
         )}
 
         {habits.length > 0 && (
-          <Text style={styles.hint}>Tap to view · Hold for quick check-in</Text>
+          <Text style={{ ...Typography.caption2, color: colors.textDim, textAlign: 'center', marginTop: Spacing.lg }}>
+            Tap to view · Hold for quick check-in
+          </Text>
         )}
 
-        {/* WhatsApp after 8 PM */}
+        {/* WhatsApp share */}
         {showWA && habits.length > 0 && (
-          <TouchableOpacity style={styles.waBtn} onPress={_shareWhatsApp}>
-            <Text style={styles.waBtnIcon}>📱</Text>
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginHorizontal: Spacing.xl, marginTop: Spacing.lg, backgroundColor: 'rgba(37,211,102,0.10)', borderRadius: Radius.lg, borderWidth: 1, borderColor: 'rgba(37,211,102,0.25)', padding: Spacing.lg }}
+            onPress={async () => {
+              try {
+                await sendDailyWhatsApp({ alterEgo, habits, checkins, streaks, totalXP: gamStats?.totalXP || 0, todayXP: 0, karmaScore: gamStats?.karmaScore || 0, levelInfo: gamStats?.levelInfo });
+              } catch (err) { Alert.alert('Error', err.message); }
+            }}
+          >
+            <Text style={{ fontSize: 28 }}>📱</Text>
             <View>
-              <Text style={styles.waBtnText}>Send Daily Report</Text>
-              <Text style={styles.waBtnSub}>Share today's karma via WhatsApp</Text>
+              <Text style={{ ...Typography.callout, color: '#25D166', fontWeight: '600' }}>Send Daily Report</Text>
+              <Text style={{ ...Typography.caption1, color: colors.textDim, marginTop: 2 }}>Share today's karma via WhatsApp</Text>
             </View>
           </TouchableOpacity>
         )}
@@ -506,123 +508,5 @@ const HomeScreen = ({ navigation }) => {
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  screen:        { flex: 1, backgroundColor: Colors.background },
-  scrollContent: { paddingBottom: 20 },
-  loadScreen: {
-    flex: 1, backgroundColor: Colors.background,
-    alignItems: 'center', justifyContent: 'center', gap: 16,
-  },
-  loadText: { ...Typography.subheadline, color: Colors.textMuted },
-  errText:  { ...Typography.body, color: Colors.red, textAlign: 'center', paddingHorizontal: 32 },
-  retryBtn: { backgroundColor: Colors.gold, paddingHorizontal: 24, paddingVertical: 13, borderRadius: Radius.lg },
-  retryText:{ ...Typography.headline, color: '#000' },
-
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-    paddingHorizontal: Spacing.xl, paddingTop: Spacing.lg, paddingBottom: Spacing.xl,
-  },
-  headerLeft:    { flex: 1 },
-  headerDate:    { ...Typography.caption2, color: Colors.textDim, letterSpacing: 1.5, marginBottom: 6 },
-  headerGreeting:{ ...Typography.title2, color: Colors.textPrimary, marginBottom: 4 },
-  headerSub:     { ...Typography.footnote, color: Colors.textDim, fontStyle: 'italic' },
-  levelPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1, borderRadius: Radius.full,
-    paddingHorizontal: 12, paddingVertical: 7,
-    backgroundColor: Colors.backgroundCard,
-  },
-  levelIcon: { fontSize: 16 },
-  levelText: { ...Typography.caption1, fontWeight: '600' },
-
-  heroCard: {
-    flexDirection: 'row', marginHorizontal: Spacing.xl,
-    backgroundColor: Colors.backgroundCard, borderRadius: Radius.xl,
-    padding: Spacing.xl, alignItems: 'center', marginBottom: Spacing.lg,
-  },
-  heroSection:  { flex: 1, alignItems: 'center', gap: 6 },
-  heroDivider:  { width: 1, height: 60, backgroundColor: Colors.separator, marginHorizontal: 8 },
-  heroLabel:    { ...Typography.caption2, color: Colors.textDim, letterSpacing: 2 },
-  heroStreak:   { fontSize: 38, fontWeight: '700', color: Colors.gold, lineHeight: 46 },
-  heroSub:      { ...Typography.caption1, color: Colors.textDim, textAlign: 'center' },
-  karmaNum:     { fontSize: 24, fontWeight: '700', color: Colors.blue },
-  progressRow:  { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
-  progressNum:  { fontSize: 26, fontWeight: '700' },
-  progressDen:  { ...Typography.callout, color: Colors.textDim },
-
-  xpSection: { marginHorizontal: Spacing.xl, marginBottom: Spacing.lg, gap: 6 },
-  xpRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  xpText:    { ...Typography.caption1, color: Colors.gold, fontWeight: '600' },
-  xpNext:    { ...Typography.caption2, color: Colors.textDim },
-  xpTrack:   { height: 6, backgroundColor: Colors.backgroundCard, borderRadius: Radius.full, overflow: 'hidden' },
-  xpFill:    { height: '100%', borderRadius: Radius.full },
-
-  // Prompt cards
-  promptCard: {
-    flexDirection:    'row',
-    alignItems:       'center',
-    gap:              Spacing.md,
-    marginHorizontal: Spacing.xl,
-    marginBottom:     Spacing.md,
-    backgroundColor:  Colors.backgroundCard,
-    borderRadius:     Radius.lg,
-    borderWidth:       1,
-    borderColor:      Colors.separator,
-    padding:          Spacing.lg,
-  },
-  promptIcon:  { fontSize: 28 },
-  promptInfo:  { flex: 1, gap: 3 },
-  promptTitle: { ...Typography.subheadline, color: Colors.textPrimary, fontWeight: '600' },
-  promptSub:   { ...Typography.caption1, color: Colors.textDim, lineHeight: 16 },
-  promptArrow: { ...Typography.title3, color: Colors.textDim, fontWeight: '300' },
-
-  shlokaPad: { marginHorizontal: Spacing.xl, marginBottom: Spacing.xl },
-
-  sectionTitle: {
-    ...Typography.caption2,
-    color: Colors.textDim, letterSpacing: 2,
-    marginHorizontal: Spacing.xl, marginBottom: Spacing.md, marginTop: Spacing.lg,
-  },
-
-  habitCard: {
-    flexDirection: 'row', alignItems: 'center',
-    marginHorizontal: Spacing.xl, marginBottom: Spacing.sm + 2,
-    backgroundColor: Colors.backgroundCard, borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: Colors.separator,
-    padding: Spacing.lg, gap: Spacing.md,
-  },
-  habitIconWrap: { width: 48, height: 48, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
-  habitEmoji:    { fontSize: 24 },
-  habitInfo:     { flex: 1, gap: 5 },
-  habitName:     { ...Typography.headline, color: Colors.textPrimary },
-  habitMeta:     { ...Typography.caption1, lineHeight: 16 },
-  checkWrap: {
-    width: 26, height: 26, borderRadius: 13,
-    borderWidth: 2, borderColor: Colors.separator,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  checkIcon: { color: '#000', fontSize: 13, fontWeight: '700' },
-  arrow:     { color: Colors.textDim, fontSize: 22, fontWeight: '300' },
-
-  empty: { alignItems: 'center', paddingHorizontal: 40, paddingVertical: 60, gap: 14 },
-  emptyWheel: { fontSize: 64, color: Colors.gold, opacity: 0.4 },
-  emptyTitle: { ...Typography.title3, color: Colors.textSecondary, textAlign: 'center' },
-  emptySub:   { ...Typography.body, color: Colors.textDim, textAlign: 'center', lineHeight: 26 },
-  emptyBtn:   { backgroundColor: Colors.gold, paddingHorizontal: 28, paddingVertical: 14, borderRadius: Radius.lg, marginTop: 4 },
-  emptyBtnText:{ ...Typography.headline, color: '#000' },
-
-  hint: { ...Typography.caption2, color: Colors.textDim, textAlign: 'center', marginTop: Spacing.lg },
-
-  waBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
-    marginHorizontal: Spacing.xl, marginTop: Spacing.lg,
-    backgroundColor: 'rgba(37,211,102,0.10)', borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: 'rgba(37,211,102,0.25)', padding: Spacing.lg,
-  },
-  waBtnIcon: { fontSize: 28 },
-  waBtnText: { ...Typography.callout, color: '#25D166', fontWeight: '600' },
-  waBtnSub:  { ...Typography.caption1, color: Colors.textDim, marginTop: 2 },
-});
 
 export default HomeScreen;
