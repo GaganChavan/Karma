@@ -336,11 +336,3 @@ export const getBeforeNowData = async (alterEgo = 'Neel') => {
     return null;
   }
 };
-
-const getSetting = async (key) => {
-  try {
-    const db = await getDatabase();
-    const r  = await db.getFirstAsync('SELECT value FROM settings WHERE key = ?', [key]);
-    return r?.value || null;
-  } catch { return null; }
-};
