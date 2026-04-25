@@ -194,7 +194,7 @@ const AddHabitScreen = ({ navigation, route }) => {
         }
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" enabled={Platform.OS === 'ios'}>
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingVertical: Spacing.xl }}
@@ -245,7 +245,7 @@ const AddHabitScreen = ({ navigation, route }) => {
               onChangeText={v => _set('name', v)}
               placeholder={form.type === 'build' ? 'e.g. Morning Meditation' : 'e.g. No Social Media'}
               placeholderTextColor={colors.textPlaceholder}
-              maxLength={50} returnKeyType="done" autoFocus={!isEdit}
+              maxLength={50} returnKeyType="done" 
             />
             <Text style={{ ...Typography.caption2, color: colors.textDim, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md }}>{form.name.length}/50</Text>
           </View>
