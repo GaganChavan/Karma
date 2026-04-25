@@ -3,7 +3,7 @@
 // Plain language insights — no AI, pure SQL analysis.
 // Krishna's battlefield intelligence delivered to Neel.
 
-import { getDatabase } from './database';
+import { getDatabase } from '../database/database';
 
 // ── Generate insights for all habits ─────────────────────────────────
 
@@ -101,7 +101,7 @@ const _analyzeBuildHabit = async (habit, checkins, db, fromDate) => {
       habitId:  habit.id,
       habitName: habit.name,
       icon:     habit.icon,
-      color:    Colors?.green || '#30D158',
+      color:    '#30D158',
       title:    `Strong momentum — ${rate}% completion`,
       detail:   `"${habit.name}" is working. You've completed it ${done}/${total} days. The rein is firm.`,
       priority: 5,
@@ -112,7 +112,7 @@ const _analyzeBuildHabit = async (habit, checkins, db, fromDate) => {
       habitId:  habit.id,
       habitName: habit.name,
       icon:     habit.icon,
-      color:    Colors?.red || '#FF453A',
+      color:    '#FF453A',
       title:    `"${habit.name}" needs attention`,
       detail:   `Only ${rate}% completion over ${total} days. Consider: is this the right time of day? Is the habit too ambitious?`,
       priority: 9,
@@ -163,7 +163,7 @@ const _analyzeBreakHabit = async (habit, checkins, db, fromDate) => {
       habitId:  habit.id,
       habitName: habit.name,
       icon:     habit.icon,
-      color:    Colors?.green || '#30D158',
+      color:    '#30D158',
       title:    `Zero slips — the rein holds perfectly`,
       detail:   `"${habit.name}" — ${resisted} days of resistance. The horse is learning. Dhruv would approve.`,
       priority: 7,
@@ -241,7 +241,3 @@ const _analyzeOverall = async (habits, db, fromDate) => {
 
   return insights;
 };
-
-// Lazy import to avoid circular dependency
-let Colors = null;
-try { Colors = require('./database').Colors; } catch {}
