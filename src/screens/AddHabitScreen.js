@@ -196,9 +196,11 @@ const AddHabitScreen = ({ navigation, route }) => {
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={{ paddingVertical: Spacing.xl }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          nestedScrollEnabled={true}
         >
           {errors.general && (
             <View style={[styles.errorBanner, { backgroundColor: colors.redAlpha15, borderColor: colors.redAlpha25 }]}>

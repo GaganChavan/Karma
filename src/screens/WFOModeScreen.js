@@ -151,7 +151,12 @@ const WFOModeScreen = ({ navigation }) => {
         <View style={{ width: 60 }} />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: Spacing.xl, gap: Spacing.lg }} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+      style={{ flex: 1 }}
+      contentContainerStyle={{ padding: Spacing.xl, gap: Spacing.lg }} 
+      showsVerticalScrollIndicator={false}
+      nestedScrollEnabled={true}
+      >
 
         {/* Master toggle */}
         <View style={{ backgroundColor: wfoActive ? colors.blueAlpha15 : colors.backgroundCard, borderRadius: Radius.xl, borderWidth: 2, borderColor: wfoActive ? colors.blue : colors.separator, padding: Spacing.xl, gap: Spacing.lg }}>
