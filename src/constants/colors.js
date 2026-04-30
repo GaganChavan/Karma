@@ -1,3 +1,5 @@
+import { sf, rs, sw } from '../utils/responsive';
+
 // ─── KARMA APP — COLORS (PHASE C) ────────────────────────────────────
 // Colors now comes from ThemeContext.
 // This file re-exports everything for backward compatibility.
@@ -15,21 +17,21 @@ export {
 
 // Typography, Spacing, Radius unchanged
 export const Typography = {
-  largeTitle:  { fontSize: 34, fontWeight: '700', letterSpacing: 0.37 },
-  title1:      { fontSize: 28, fontWeight: '700', letterSpacing: 0.36 },
-  title2:      { fontSize: 22, fontWeight: '700', letterSpacing: 0.35 },
-  title3:      { fontSize: 20, fontWeight: '600', letterSpacing: 0.38 },
-  headline:    { fontSize: 17, fontWeight: '600', letterSpacing: -0.41 },
-  body:        { fontSize: 17, fontWeight: '400', letterSpacing: -0.41 },
-  callout:     { fontSize: 16, fontWeight: '400', letterSpacing: -0.32 },
-  subheadline: { fontSize: 15, fontWeight: '400', letterSpacing: -0.24 },
-  footnote:    { fontSize: 13, fontWeight: '400', letterSpacing: -0.08 },
-  caption1:    { fontSize: 12, fontWeight: '400', letterSpacing: 0 },
-  caption2:    { fontSize: 11, fontWeight: '400', letterSpacing: 0.07 },
+  largeTitle:  { fontSize: sf(34), fontWeight: '700', letterSpacing: 0.37 },
+  title1:      { fontSize: sf(28), fontWeight: '700', letterSpacing: 0.36 },
+  title2:      { fontSize: sf(22), fontWeight: '700', letterSpacing: 0.35 },
+  title3:      { fontSize: sf(20), fontWeight: '600', letterSpacing: 0.38 },
+  headline:    { fontSize: sf(17), fontWeight: '600', letterSpacing: -0.41 },
+  body:        { fontSize: sf(17), fontWeight: '400', letterSpacing: -0.41 },
+  callout:     { fontSize: sf(16), fontWeight: '400', letterSpacing: -0.32 },
+  subheadline: { fontSize: sf(15), fontWeight: '400', letterSpacing: -0.24 },
+  footnote:    { fontSize: sf(13), fontWeight: '400', letterSpacing: -0.08 },
+  caption1:    { fontSize: sf(12), fontWeight: '400', letterSpacing: 0 },
+  caption2:    { fontSize: sf(11), fontWeight: '400', letterSpacing: 0.07 },
 };
 
 export const Spacing = {
-  xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32,
+  xs: rs(4), sm: rs(8), md: rs(12), lg: rs(16), xl: rs(20), xxl: rs(24), xxxl: rs(32),
 };
 
 export const Radius = {

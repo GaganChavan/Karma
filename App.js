@@ -59,19 +59,14 @@ const AppInner = () => {
       console.warn('Could not schedule notifications:', err.message);
     }
     try {
-      const lastShown = await getSetting('identity_shown_date');
-      const today     = new Date().toISOString().split('T')[0];
-      setPhase(lastShown !== today ? PHASE.IDENTITY : PHASE.APP);
+      // Show identity screen every time app opens
+      setPhase(PHASE.IDENTITY);
     } catch {
       setPhase(PHASE.IDENTITY);
     }
   };
 
-  const _handleIdentityDismiss = async () => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      await setSetting('identity_shown_date', today);
-    } catch {}
+  const _handleIdentityDismiss = () => {
     setPhase(PHASE.APP);
   };
 

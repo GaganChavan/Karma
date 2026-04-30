@@ -16,14 +16,10 @@ import { getSetting }            from '../database/habitService';
 import ShlokaDisplay             from '../components/ShlokaDisplay';
 
 const { height } = Dimensions.get('window');
-const AUTO_DISMISS_SECONDS = 5;
-
 const IdentityScreen = ({ onDismiss }) => {
   const [identityStatement, setIdentityStatement] = useState(
     'I am Neel. My mind holds the reins. The horses do not rule me.'
   );
-  const [countdown, setCountdown] = useState(AUTO_DISMISS_SECONDS);
-
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
@@ -33,7 +29,6 @@ const IdentityScreen = ({ onDismiss }) => {
   useEffect(() => {
     _loadIdentity();
     _animate();
-    _startCountdown();
   }, []);
 
   const _loadIdentity = async () => {
@@ -52,18 +47,6 @@ const IdentityScreen = ({ onDismiss }) => {
         toValue: 0, duration: 600, useNativeDriver: true,
       }),
     ]).start();
-  };
-
-  const _startCountdown = () => {
-    let count = AUTO_DISMISS_SECONDS;
-    const interval = setInterval(() => {
-      count -= 1;
-      setCountdown(count);
-      if (count <= 0) {
-        clearInterval(interval);
-        _dismiss();
-      }
-    }, 1000);
   };
 
   const _dismiss = () => {
@@ -129,7 +112,6 @@ const IdentityScreen = ({ onDismiss }) => {
           {/* Dismiss */}
           <TouchableOpacity style={styles.enterBtn} onPress={_dismiss} activeOpacity={0.8}>
             <Text style={styles.enterBtnText}>Enter the Battlefield</Text>
-            <Text style={styles.enterBtnCount}>({countdown})</Text>
           </TouchableOpacity>
 
         </Animated.View>
@@ -243,7 +225,6 @@ const styles = StyleSheet.create({
     paddingVertical:   14,
   },
   enterBtnText:  { ...Typography.headline, color: '#000' },
-  enterBtnCount: { ...Typography.callout, color: 'rgba(0,0,0,0.5)' },
 });
 
 export default IdentityScreen;
