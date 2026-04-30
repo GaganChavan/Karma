@@ -1,52 +1,201 @@
-// ─── KARMA APP — STATS SCREEN (PHASE C) ──────────────────────────────
-// Added: Pattern Insights tab — Karma speaks after 30 days
-// Theme-aware via useTheme()
+// ─── KARMA APP — STATS SCREEN (PHASE D) ─────────────────────────────
+// FIX #8: 90-day heatmap — self-explanatory
+//   - Month labels above columns (Jan, Feb, etc.)
+//   - Day-of-week labels (M T W T F S S)
+//   - Color legend at bottom
+//   - Consistency % shown
+//   - Summary: done / missed / tracked numbers
+//   - Starts from first app use date (not fake 90 days of empty)
+//   - Today highlighted with gold border
+//   - Days before app existed are transparent (not shown as missed)
 
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, ActivityIndicator,
-  Dimensions,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  StatusBar, ActivityIndicator, Dimensions,
 } from 'react-native';
-import { SafeAreaView }   from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
-import { DateUtils }      from '../utils/dateUtils';
+import { DateUtils } from '../utils/dateUtils';
 import { getAllHabits, getStreak, getSetting } from '../database/habitService';
 import { getFullStats, MILESTONE_INFO, LEVELS } from '../services/gamificationService';
-import { getDatabase }    from '../database/database';
+import { getDatabase } from '../database/database';
 import { generateInsights } from '../services/insightsService';
 
 const { width } = Dimensions.get('window');
-const CELL_SIZE  = Math.floor((width - 48) / 18);
 
+// ── Heatmap constants ─────────────────────────────────────────────────
+const CELL = 11;
+const GAP  = 2;
+
+// ── Self-explanatory 90-day heatmap ───────────────────────────────────
+const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
+  if (!heatmapData || heatmapData.length === 0) return null;
+
+  const today = new Date().toISOString().split('T')[0];
+
+  // Pad to Mon alignment
+  const firstDow = (new Date(heatmapData[0].date).getDay() + 6) % 7;
+  const padded = Array(firstDow).fill(null).concat(heatmapData);
+
+  const weeks = [];
+  for (let i = 0; i < padded.length; i += 7) {
+    weeks.push(padded.slice(i, i + 7));
+  }
+
+  // Month labels
+  const monthLabels = [];
+  let lastMonth = -1;
+  weeks.forEach((week, wi) => {
+    const first = week.find(d => d !== null);
+    if (!first) return;
+    const m = new Date(first.date).getMonth();
+    if (m !== lastMonth) {
+      monthLabels.push({ col: wi, label: new Date(first.date).toLocaleString('default', { month: 'short' }) });
+      lastMonth = m;
+    }
+  });
+
+  // Summary stats
+  const tracked = heatmapData.filter(d => d.date >= appStartDate);
+  const perfect = tracked.filter(d => d.level === 'all' || d.rate === 1);
+  const partial = tracked.filter(d => d.level === 'partial' || (d.rate > 0 && d.rate < 1));
+  const missed  = tracked.filter(d => d.level === 'missed' || d.rate === 0);
+  const consistency = tracked.length > 0
+    ? Math.round(((perfect.length + partial.length) / tracked.length) * 100) : 0;
+
+  const getColor = (cell) => {
+    if (!cell || cell.date < appStartDate) return 'transparent';
+    if (cell.rate === 0) return colors.backgroundCard;
+    if (cell.rate <= 0.33) return colors.gold + '33';
+    if (cell.rate <= 0.66) return colors.gold + '77';
+    if (cell.rate < 1)    return colors.gold + 'BB';
+    return colors.gold;
+  };
+
+  return (
+    <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.lg, marginBottom: Spacing.lg }}>
+      {/* Title + consistency */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <Text style={{ ...Typography.subheadline, color: colors.textPrimary, fontWeight: '700' }}>90-Day Journey</Text>
+        <View style={{ backgroundColor: colors.gold + '20', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3 }}>
+          <Text style={{ fontSize: 11, color: colors.gold, fontWeight: '700' }}>{consistency}% consistent</Text>
+        </View>
+      </View>
+
+      {/* Summary numbers */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.separator }}>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={{ fontSize: 20, fontWeight: '700', color: colors.gold }}>{perfect.length + partial.length}</Text>
+          <Text style={{ fontSize: 10, color: colors.textDim }}>days done</Text>
+        </View>
+        <View style={{ width: 1, backgroundColor: colors.separator }} />
+        <View style={{ alignItems: 'center' }}>
+          <Text style={{ fontSize: 20, fontWeight: '700', color: colors.red }}>{missed.length}</Text>
+          <Text style={{ fontSize: 10, color: colors.textDim }}>days missed</Text>
+        </View>
+        <View style={{ width: 1, backgroundColor: colors.separator }} />
+        <View style={{ alignItems: 'center' }}>
+          <Text style={{ fontSize: 20, fontWeight: '700', color: colors.textPrimary }}>{tracked.length}</Text>
+          <Text style={{ fontSize: 10, color: colors.textDim }}>days tracked</Text>
+        </View>
+      </View>
+
+      {/* Grid */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View>
+          {/* Month labels */}
+          <View style={{ height: 14, position: 'relative', marginLeft: 16, width: weeks.length * (CELL + GAP), marginBottom: 2 }}>
+            {monthLabels.map((ml, i) => (
+              <Text key={i} style={{ position: 'absolute', left: ml.col * (CELL + GAP), fontSize: 9, color: colors.textDim }}>{ml.label}</Text>
+            ))}
+          </View>
+          {/* Day labels + week columns */}
+          <View style={{ flexDirection: 'row' }}>
+            <View style={{ width: 12, marginRight: 4 }}>
+              {['M','','W','','F','','S'].map((l, i) => (
+                <Text key={i} style={{ fontSize: 8, color: colors.textDim, height: CELL + GAP, lineHeight: CELL + GAP, textAlign: 'right' }}>{l}</Text>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row' }}>
+              {weeks.map((week, wi) => (
+                <View key={wi} style={{ flexDirection: 'column', marginRight: GAP }}>
+                  {week.map((cell, di) => {
+                    if (!cell) return <View key={di} style={{ width: CELL, height: CELL, marginBottom: GAP }} />;
+                    const isToday = cell.date === today;
+                    const bg = getColor(cell);
+                    return (
+                      <View key={di} style={{
+                        width: CELL, height: CELL, borderRadius: 2, marginBottom: GAP,
+                        backgroundColor: bg,
+                        borderWidth: isToday ? 1.5 : 0,
+                        borderColor: colors.gold,
+                      }} />
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+
+      {/* Legend */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginTop: 10 }}>
+        <Text style={{ fontSize: 9, color: colors.textDim }}>Legend:</Text>
+        {[
+          { color: colors.gold,         label: 'All done' },
+          { color: colors.gold + 'BB',  label: 'Most done' },
+          { color: colors.gold + '55',  label: 'Some done' },
+          { color: colors.backgroundCard, label: 'None', border: true },
+        ].map((l, i) => (
+          <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+            <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: l.color, borderWidth: l.border ? 1 : 0, borderColor: colors.separator }} />
+            <Text style={{ fontSize: 9, color: colors.textDim }}>{l.label}</Text>
+          </View>
+        ))}
+        <Text style={{ fontSize: 9, color: colors.gold }}>bordered = today</Text>
+      </View>
+
+      {/* Start date */}
+      <Text style={{ fontSize: 9, color: colors.textDim, textAlign: 'right', marginTop: 6 }}>
+        Tracking since {new Date(appStartDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+      </Text>
+    </View>
+  );
+};
+
+// ── Main Screen ────────────────────────────────────────────────────────
 const StatsScreen = ({ navigation }) => {
   const { colors } = useTheme();
-  const [data,     setData]     = useState(null);
+  const [data, setData]       = useState(null);
   const [gamStats, setGamStats] = useState(null);
   const [insights, setInsights] = useState([]);
   const [alterEgo, setAlterEgo] = useState('Neel');
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState(null);
-  const [tab,      setTab]      = useState('overview');
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+  const [tab, setTab]         = useState('overview');
 
   useFocusEffect(useCallback(() => { _loadData(); }, []));
 
   const _loadData = async () => {
     try {
       setLoading(true);
-      const db    = await getDatabase();
+      const db = await getDatabase();
       const today = new Date();
 
       const dates90 = [];
       for (let i = 89; i >= 0; i--) {
-        const d = new Date(today); d.setDate(d.getDate() - i);
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
         dates90.push(d.toISOString().split('T')[0]);
       }
 
-      const habits   = await getAllHabits();
+      const habits = await getAllHabits();
       const checkins = await db.getAllAsync(
-        `SELECT date, status, habit_id FROM checkins WHERE date >= ?`, [dates90[0]]
+        `SELECT date, status, habit_id FROM checkins WHERE date >= ?`,
+        [dates90[0]]
       ) || [];
 
       const checkinMap = {};
@@ -56,18 +205,17 @@ const StatsScreen = ({ navigation }) => {
       });
 
       const milestones = await db.getAllAsync('SELECT * FROM milestones ORDER BY achieved_at DESC') || [];
-      const totalDone  = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE status IN ('done','resisted')");
+      const totalDone = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE status IN ('done','resisted')");
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-      const monthDone  = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE date >= ? AND status IN ('done','resisted')", [monthStart]);
-
-      const allStreaks  = await Promise.all(habits.map(h => getStreak(h.id)));
-      const bestStreak  = allStreaks.reduce((max, s) => s.longest > max ? s.longest : max, 0);
+      const monthDone = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE date >= ? AND status IN ('done','resisted')", [monthStart]);
+      const allStreaks = await Promise.all(habits.map(h => getStreak(h.id)));
+      const bestStreak = allStreaks.reduce((max, s) => s.longest > max ? s.longest : max, 0);
 
       const habitStats = await Promise.all(habits.map(async (h, i) => {
         const streak = allStreaks[i] || { current: 0, longest: 0 };
-        const done   = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE habit_id = ? AND status IN ('done','resisted')", [h.id]);
-        const total  = await db.getFirstAsync('SELECT COUNT(*) as count FROM checkins WHERE habit_id = ?', [h.id]);
-        const rate   = total?.count > 0 ? Math.round(((done?.count || 0) / total.count) * 100) : 0;
+        const done = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE habit_id = ? AND status IN ('done','resisted')", [h.id]);
+        const total = await db.getFirstAsync('SELECT COUNT(*) as count FROM checkins WHERE habit_id = ?', [h.id]);
+        const rate = total?.count > 0 ? Math.round(((done?.count || 0) / total.count) * 100) : 0;
         return { ...h, streak, doneCount: done?.count || 0, rate };
       }));
 
@@ -75,7 +223,8 @@ const StatsScreen = ({ navigation }) => {
       for (let w = 7; w >= 0; w--) {
         const weekDates = [];
         for (let d = 6; d >= 0; d--) {
-          const date = new Date(today); date.setDate(date.getDate() - (w * 7 + d));
+          const date = new Date(today);
+          date.setDate(date.getDate() - (w * 7 + d));
           weekDates.push(date.toISOString().split('T')[0]);
         }
         weeks.push(weekDates);
@@ -89,10 +238,21 @@ const StatsScreen = ({ navigation }) => {
         return Math.round((done / (habits.length * 7)) * 100);
       });
 
+      // FIX: Find first checkin date (app start date)
+      const firstCheckin = await db.getFirstAsync('SELECT MIN(date) as first_date FROM checkins');
+      const appStartDate = firstCheckin?.first_date || dates90[0];
+
+      // Build heatmap data — days before app start are 'before_app'
       const heatmapData = dates90.map(date => {
         const dayC = checkinMap[date] || [];
-        const done  = dayC.filter(c => c.status === 'done' || c.status === 'resisted').length;
-        return { date, rate: habits.length > 0 ? done / habits.length : 0 };
+        if (date < appStartDate) return { date, rate: 0, level: 'before_app' };
+        const done = dayC.filter(c => c.status === 'done' || c.status === 'resisted').length;
+        const rate = habits.length > 0 ? done / habits.length : 0;
+        let level = 'missed';
+        if (dayC.length === 0) level = 'empty';
+        else if (rate === 1)   level = 'all';
+        else if (rate > 0)     level = 'partial';
+        return { date, rate, level };
       });
 
       const [gam, ego, ins] = await Promise.all([
@@ -101,7 +261,11 @@ const StatsScreen = ({ navigation }) => {
         generateInsights(),
       ]);
 
-      setData({ habits, habitStats, heatmapData, weeklyRates, milestones, totalDone: totalDone?.count || 0, bestStreak, monthDone: monthDone?.count || 0 });
+      setData({
+        habits, habitStats, heatmapData, weeklyRates, milestones,
+        totalDone: totalDone?.count || 0, bestStreak,
+        monthDone: monthDone?.count || 0, appStartDate,
+      });
       setGamStats(gam);
       setAlterEgo(ego || 'Neel');
       setInsights(ins);
@@ -146,17 +310,14 @@ const StatsScreen = ({ navigation }) => {
       {/* Tabs */}
       <View style={[styles.tabBar, { borderBottomColor: colors.separator }]}>
         {[
-          { key: 'overview', label: '📊 Overview' },
-          { key: 'habits',   label: '✅ Habits' },
-          { key: 'badges',   label: '🏆 Badges' },
-          { key: 'insights', label: '🧠 Insights' },
+          { key: 'overview',  label: '📊 Overview' },
+          { key: 'habits',    label: '✅ Habits' },
+          { key: 'badges',    label: '🏆 Badges' },
+          { key: 'insights',  label: '🧠 Insights' },
         ].map(t => (
           <TouchableOpacity
             key={t.key}
-            style={[styles.tabBtn, {
-              backgroundColor: tab === t.key ? colors.goldAlpha15 : colors.backgroundCard,
-              borderColor:     tab === t.key ? colors.gold : colors.separator,
-            }]}
+            style={[styles.tabBtn, { backgroundColor: tab === t.key ? colors.goldAlpha15 : colors.backgroundCard, borderColor: tab === t.key ? colors.gold : colors.separator }]}
             onPress={() => setTab(t.key)}
           >
             <Text style={{ fontSize: 10, color: tab === t.key ? colors.gold : colors.textMuted, fontWeight: tab === t.key ? '700' : '400' }}>
@@ -202,12 +363,12 @@ const StatsScreen = ({ navigation }) => {
             {/* Stats grid */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.lg }}>
               {[
-                { label: 'TOTAL DONE',    value: String(data?.totalDone || 0), icon: '✅' },
-                { label: 'BEST STREAK',   value: `${data?.bestStreak || 0}d`,  icon: '🪔' },
-                { label: 'THIS MONTH',    value: String(data?.monthDone || 0), icon: '📅' },
-                { label: 'ACTIVE HABITS', value: String(data?.habits?.length || 0), icon: '☸' },
-                { label: 'FREEZE LEFT',   value: String(gamStats?.freezeCount || 0), icon: '🧊' },
-                { label: 'BADGES',        value: String(data?.milestones?.length || 0), icon: '🏆' },
+                { label: 'TOTAL DONE',    value: String(data?.totalDone || 0),          icon: '✅' },
+                { label: 'BEST STREAK',   value: `${data?.bestStreak || 0}d`,            icon: '🪔' },
+                { label: 'THIS MONTH',    value: String(data?.monthDone || 0),           icon: '📅' },
+                { label: 'ACTIVE HABITS', value: String(data?.habits?.length || 0),      icon: '☸'  },
+                { label: 'FREEZE LEFT',   value: String(gamStats?.freezeCount || 0),     icon: '🧊' },
+                { label: 'BADGES',        value: String(data?.milestones?.length || 0),  icon: '🏆' },
               ].map((s, i) => (
                 <View key={i} style={{ width: '30.5%', backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.md, alignItems: 'center', gap: 4 }}>
                   <Text style={{ fontSize: 20 }}>{s.icon}</Text>
@@ -216,6 +377,17 @@ const StatsScreen = ({ navigation }) => {
                 </View>
               ))}
             </View>
+
+            {/* Freeze explanation */}
+            {(gamStats?.freezeCount || 0) > 0 && (
+              <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.md, borderWidth: 1, borderColor: colors.separator, padding: Spacing.md, marginBottom: Spacing.lg, flexDirection: 'row', gap: Spacing.sm }}>
+                <Text style={{ fontSize: 20 }}>🧊</Text>
+                <Text style={{ ...Typography.caption1, color: colors.textDim, flex: 1, lineHeight: 18 }}>
+                  <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>{gamStats.freezeCount} streak freeze{gamStats.freezeCount > 1 ? 's' : ''} available.</Text>{' '}
+                  Earned when weekly consistency ≥ 80%. Auto-protects your streak for 1 day when missed.
+                </Text>
+              </View>
+            )}
 
             {/* Weekly bars */}
             <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>WEEKLY COMPLETION</Text>
@@ -228,28 +400,20 @@ const StatsScreen = ({ navigation }) => {
                     <View style={{ width: '100%', height: 100, justifyContent: 'flex-end', backgroundColor: colors.backgroundCard, borderRadius: 4, overflow: 'hidden' }}>
                       <View style={{ width: '100%', height: Math.max(4, rate), backgroundColor: isLast ? colors.gold : colors.blue, borderRadius: 4, opacity: isLast ? 1 : 0.6 }} />
                     </View>
-                    <Text style={{ fontSize: 9, color: colors.textDim }}>{['W1','W2','W3','W4','W5','W6'][i] || `W${i+1}`}</Text>
+                    <Text style={{ fontSize: 9, color: isLast ? colors.gold : colors.textDim }}>
+                      {['W1','W2','W3','W4','W5','W6'][i] || `W${i+1}`}
+                    </Text>
                   </View>
                 );
               })}
             </View>
 
-            {/* 90-day heatmap */}
-            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>90-DAY HEATMAP</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 2, marginBottom: Spacing.sm }}>
-              {(data?.heatmapData || []).map((cell) => {
-                const opacity = cell.rate === 0 ? 0.06 : cell.rate <= 0.25 ? 0.25 : cell.rate <= 0.5 ? 0.5 : cell.rate <= 0.75 ? 0.75 : 1;
-                const isToday = DateUtils.isToday(cell.date);
-                return (
-                  <View key={cell.date} style={{
-                    width: CELL_SIZE, height: CELL_SIZE, borderRadius: 2,
-                    backgroundColor: cell.rate === 0 ? colors.backgroundCard : colors.gold,
-                    opacity: isToday ? 1 : opacity,
-                    borderWidth: isToday ? 1.5 : 0, borderColor: colors.gold,
-                  }} />
-                );
-              })}
-            </View>
+            {/* FIX #8: Self-explanatory heatmap */}
+            <OverviewHeatmap
+              heatmapData={data?.heatmapData || []}
+              appStartDate={data?.appStartDate || new Date().toISOString().split('T')[0]}
+              colors={colors}
+            />
           </>
         )}
 
@@ -293,17 +457,11 @@ const StatsScreen = ({ navigation }) => {
             <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>MILESTONE BADGES</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
               {[3,7,14,21,30,48,60,75,90,180,365].map(days => {
-                const info   = MILESTONE_INFO[days] || {};
-                const earned = (data?.milestones || []).some(m => m.milestone_days === days);
+                const info    = MILESTONE_INFO[days] || {};
+                const earned  = (data?.milestones || []).some(m => m.milestone_days === days);
                 const earnedM = (data?.milestones || []).find(m => m.milestone_days === days);
                 return (
-                  <View key={days} style={{
-                    width: '30%', borderRadius: Radius.lg, borderWidth: 1,
-                    padding: Spacing.md, alignItems: 'center', gap: 4,
-                    backgroundColor: earned ? colors.goldAlpha15 : colors.backgroundCard,
-                    borderColor:     earned ? colors.goldAlpha40 : colors.separator,
-                    opacity:         earned ? 1 : 0.4,
-                  }}>
+                  <View key={days} style={{ width: '30%', borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.md, alignItems: 'center', gap: 4, backgroundColor: earned ? colors.goldAlpha15 : colors.backgroundCard, borderColor: earned ? colors.goldAlpha40 : colors.separator, opacity: earned ? 1 : 0.4 }}>
                     <Text style={{ fontSize: 26 }}>{info.badge || '🏆'}</Text>
                     <Text style={{ ...Typography.caption1, fontWeight: '700', color: earned ? colors.gold : colors.textDim }}>{days} days</Text>
                     <Text style={{ fontSize: 9, color: colors.textDim, textAlign: 'center' }}>{info.title || ''}</Text>
@@ -324,9 +482,7 @@ const StatsScreen = ({ navigation }) => {
             {insights.length === 0 ? (
               <View style={{ alignItems: 'center', paddingVertical: 60, gap: Spacing.lg }}>
                 <Text style={{ fontSize: 56 }}>🧠</Text>
-                <Text style={{ ...Typography.title3, color: colors.textSecondary, textAlign: 'center' }}>
-                  Krishna is watching
-                </Text>
+                <Text style={{ ...Typography.title3, color: colors.textSecondary, textAlign: 'center' }}>Krishna is watching</Text>
                 <Text style={{ ...Typography.body, color: colors.textDim, textAlign: 'center', lineHeight: 26 }}>
                   After 7 days of tracking, Karma will reveal your patterns — your weak days, your triggers, your energy-discipline connection.{'\n\n'}
                   Log your habits. Let the data build.
@@ -340,21 +496,9 @@ const StatsScreen = ({ navigation }) => {
               </View>
             ) : (
               <>
-                <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.lg }}>
-                  KRISHNA SPEAKS — YOUR PATTERNS
-                </Text>
+                <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.lg }}>KRISHNA SPEAKS — YOUR PATTERNS</Text>
                 {insights.map((ins, i) => (
-                  <View key={i} style={{
-                    backgroundColor: colors.backgroundCard,
-                    borderRadius:    Radius.lg,
-                    borderWidth:      1,
-                    borderColor:     ins.color ? ins.color + '30' : colors.separator,
-                    borderLeftWidth:  4,
-                    borderLeftColor:  ins.color || colors.gold,
-                    padding:         Spacing.xl,
-                    marginBottom:    Spacing.md,
-                    gap:             Spacing.sm,
-                  }}>
+                  <View key={i} style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: ins.color ? ins.color + '30' : colors.separator, borderLeftWidth: 4, borderLeftColor: ins.color || colors.gold, padding: Spacing.xl, marginBottom: Spacing.md, gap: Spacing.sm }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
                       <Text style={{ fontSize: 24 }}>{ins.icon}</Text>
                       <Text style={{ ...Typography.headline, color: colors.textPrimary, flex: 1 }}>{ins.title}</Text>
@@ -379,10 +523,10 @@ const StatsScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  header:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, borderBottomWidth: 1 },
-  tabBar:   { flexDirection: 'row', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, gap: Spacing.sm, borderBottomWidth: 1 },
-  tabBtn:   { flex: 1, paddingVertical: 8, borderRadius: Spacing.sm, borderWidth: 1, alignItems: 'center' },
-  levelCard:{ borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.xl, marginBottom: Spacing.lg },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, borderBottomWidth: 1 },
+  tabBar: { flexDirection: 'row', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, gap: Spacing.sm, borderBottomWidth: 1 },
+  tabBtn: { flex: 1, paddingVertical: 8, borderRadius: Spacing.sm, borderWidth: 1, alignItems: 'center' },
+  levelCard: { borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.xl, marginBottom: Spacing.lg },
 });
 
 export default StatsScreen;
