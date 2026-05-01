@@ -95,10 +95,10 @@ export const createHabit = async (habit) => {
         habit.days || '1,2,3,4,5,6,7',
         habit.time_of_day || 'anytime',
         habit.is_quantifiable ? 1 : 0,
-        habit.daily_target ? parseFloat(habit.daily_target) : null,
-        habit.unit || null,
+        parseFloat(habit.daily_target) || 1,   // NOT NULL DEFAULT 1 — never pass null
+        habit.unit || '',                        // NOT NULL DEFAULT '' — never pass null
         habit.frequency_type || 'daily',
-        habit.weekly_target ? parseInt(habit.weekly_target) : null,
+        parseInt(habit.weekly_target) || 7,     // NOT NULL DEFAULT 7 — never pass null
         habit.is_wfo_skip ? 1 : 0,
         habit.reminder_time || null,
         habit.reminder_type || 'none',

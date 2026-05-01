@@ -67,7 +67,10 @@ const HabitHeatmap90 = ({ checkins90, accentColor, habitCreatedAt }) => {
 
   const ninetyAgo = new Date(today);
   ninetyAgo.setDate(today.getDate() - 89);
-  const startDate = createdDate > ninetyAgo ? createdDate : ninetyAgo;
+  // App launched May 1 2026 — never show data before this
+  const APP_BIRTH = new Date("2026-05-01T00:00:00");
+  const candidates = [createdDate, APP_BIRTH, ninetyAgo];
+  const startDate = candidates.reduce((max, d) => d > max ? d : max);
 
   // Build status map
   const statusMap = {};

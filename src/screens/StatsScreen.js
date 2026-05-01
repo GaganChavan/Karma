@@ -240,7 +240,9 @@ const StatsScreen = ({ navigation }) => {
 
       // FIX: Find first checkin date (app start date)
       const firstCheckin = await db.getFirstAsync('SELECT MIN(date) as first_date FROM checkins');
-      const appStartDate = firstCheckin?.first_date || dates90[0];
+      const APP_BIRTH = '2026-05-01';
+      const rawStart = firstCheckin?.first_date || APP_BIRTH;
+      const appStartDate = rawStart < APP_BIRTH ? APP_BIRTH : rawStart;
 
       // Build heatmap data — days before app start are 'before_app'
       const heatmapData = dates90.map(date => {
