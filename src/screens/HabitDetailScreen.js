@@ -19,12 +19,12 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
 import { DateUtils } from '../utils/dateUtils';
 import {
-  getHabitById, getStreak, getCheckinsForHabit, checkIn,
+  getHabitById, getStreak, getCheckinsForHabit,
   getPunishmentLevel, getWeeklyCompletionRate,
 } from '../database/habitService';
 import {
   checkMilestone, getHabitMilestones, useStreakFreeze,
-  getStreakFreezeCount, MILESTONE_INFO,
+  getStreakFreezeCount, MILESTONE_INFO, calculateCheckinXP, awardXP,
 } from '../services/gamificationService';
 import { getShloka, getMilestoneContext, getPunishContext } from '../constants/shlokas';
 import { logSlipTrigger, getTriggerPattern, TRIGGER_OPTIONS } from '../database/moodService';
@@ -635,7 +635,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
                 ? <ActivityIndicator color="#000" />
                 : <Text style={{ ...Typography.headline, color: isDone ? colors.white : '#000' }}>
                     {isDone
-                      ? `✓ ${todayValue} ${unit} logged${todayValue < dailyTarget ? ' (partial)' : todayValue > dailyTarget ? ' (exceeded!)' : ''} — Tap to update`
+                      ? `✓ ${todayValue} ${unit} logged${(todayValue !== null && todayValue < dailyTarget) ? ' (partial)' : (todayValue !== null && todayValue > dailyTarget) ? ' (exceeded!)' : ''} — Tap to update`
                       : `📊 Log ${dailyTarget} ${unit}`}
                   </Text>
               }
@@ -648,6 +648,44 @@ const HabitDetailScreen = ({ navigation, route }) => {
                                                `💪 ${todayValue}/${dailyTarget} ${unit} — partial (${Math.round((todayValue/dailyTarget)*100)}%)`}
                 </Text>
               </View>
+            )}
+
+            {/* FIX: Skip / Missed / Freeze — also available for quantifiable habits */}
+            <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+              <View style={{ flex: 1 }}>
+                <TouchableOpacity
+                  style={{ borderRadius: Radius.lg, borderWidth: 1, paddingVertical: 12, alignItems: 'center', borderColor: isSkipped ? colors.gold : colors.separator, backgroundColor: isSkipped ? colors.goldAlpha15 : colors.backgroundCard }}
+                  onPress={() => _doCheckIn('skipped')}
+                  disabled={saving}
+                >
+                  <Text style={{ ...Typography.subheadline, fontWeight: '600', color: isSkipped ? colors.gold : colors.textMuted }}>
+                    ⏭ {isSkipped ? 'Skipped ✓' : 'Skip'}
+                  </Text>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 9, color: colors.textDim, textAlign: 'center', marginTop: 3 }}>Streak protected</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <TouchableOpacity
+                  style={{ borderRadius: Radius.lg, borderWidth: 1, paddingVertical: 12, alignItems: 'center', borderColor: isMissed ? colors.red : colors.separator, backgroundColor: isMissed ? colors.redAlpha15 : colors.backgroundCard }}
+                  onPress={() => _doCheckIn('missed')}
+                  disabled={saving}
+                >
+                  <Text style={{ ...Typography.subheadline, fontWeight: '600', color: isMissed ? colors.red : colors.textMuted }}>
+                    ✗ {isMissed ? 'Missed ✓' : 'Missed'}
+                  </Text>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 9, color: colors.textDim, textAlign: 'center', marginTop: 3 }}>Streak breaks · –5 XP</Text>
+              </View>
+            </View>
+            {streak.current > 0 && !isComplete && (
+              <TouchableOpacity
+                style={{ borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.greenAlpha25, backgroundColor: colors.greenAlpha15, paddingVertical: 12, alignItems: 'center', opacity: freezeCount > 0 ? 1 : 0.4 }}
+                onPress={_useFreeze}
+              >
+                <Text style={{ ...Typography.subheadline, color: colors.green, fontWeight: '600' }}>
+                  🧊 Streak Freeze — {freezeCount} available
+                </Text>
+              </TouchableOpacity>
             )}
           </View>
 

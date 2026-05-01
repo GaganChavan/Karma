@@ -10,7 +10,7 @@
 //   #4: habit starts from creation day, not next day
 
 import { getDatabase } from './database';
-import { calculateCheckinXP, awardXP } from '../services/gamificationService';
+import { calculateCheckinXP } from '../services/gamificationService';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 const getTodayDate = () => new Date().toISOString().split('T')[0];
