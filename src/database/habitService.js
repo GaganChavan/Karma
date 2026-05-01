@@ -422,19 +422,31 @@ export const getStreak = async (habitId) => {
 };
 
 export const getWeeklyCompletionRate = async (habitId) => {
-  if (!habitId) return 0;
+  if (!habitId) return { done: 0, daysElapsed: 0, rate: 0 };
   try {
     const db = await getDatabase();
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-    const fromDate = sevenDaysAgo.toISOString().split('T')[0];
+
+    // Monday-aligned: count from Monday of current week to today
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0=Sun
+    const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - daysFromMonday);
+    const fromDate = monday.toISOString().split('T')[0];
+    const todayDate = today.toISOString().split('T')[0];
+
+    // Days elapsed in this week so far (Mon to today, inclusive)
+    const daysElapsed = daysFromMonday + 1;
+
     const done = await db.getFirstAsync(
       `SELECT COUNT(*) as count FROM checkins
-       WHERE habit_id = ? AND date >= ? AND status IN ('done','resisted')`,
-      [habitId, fromDate]
+       WHERE habit_id = ? AND date >= ? AND date <= ? AND status IN ('done','resisted')`,
+      [habitId, fromDate, todayDate]
     );
-    return Math.round(((done?.count || 0) / 7) * 100);
-  } catch { return 0; }
+    const doneCount = done?.count || 0;
+    const rate = daysElapsed > 0 ? Math.round((doneCount / daysElapsed) * 100) : 0;
+    return { done: doneCount, daysElapsed, rate };
+  } catch { return { done: 0, daysElapsed: 0, rate: 0 }; }
 };
 
 // ── PUNISHMENT ────────────────────────────────────────────────────────

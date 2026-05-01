@@ -225,6 +225,8 @@ const HabitDetailScreen = ({ navigation, route }) => {
   const [freezeCount, setFreezeCount]     = useState(0);
   const [triggerPattern, setTriggerPattern] = useState(null);
   const [weekProgress, setWeekProgress]   = useState(null);
+  const [weekDoneCount, setWeekDoneCount]   = useState(0);
+  const [weekDaysElapsed, setWeekDaysElapsed] = useState(0);
   const [activeRecovery, setActiveRecovery] = useState(null);
   const [loading, setLoading]             = useState(true);
   const [saving, setSaving]               = useState(false);
@@ -242,7 +244,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
   const _loadData = async () => {
     try {
       setLoading(true);
-      const [h, s, cs, wr, ms, fc, tp, recovery] = await Promise.all([
+      const [h, s, cs, weekData, ms, fc, tp, recovery] = await Promise.all([
         getHabitById(habitId),
         getStreak(habitId),
         getCheckinsForHabit(habitId, 90),
@@ -260,7 +262,9 @@ const HabitDetailScreen = ({ navigation, route }) => {
       setTodayStatus(todayC?.status || null);
       setTodayValue(todayC?.value || null);
       setSlipCount(todayC?.slip_count || 0);
-      setWeekRate(wr);
+      setWeekRate(weekData?.rate || 0);
+      setWeekDoneCount(weekData?.done || 0);
+      setWeekDaysElapsed(weekData?.daysElapsed || 0);
       setMilestones(ms);
       setFreezeCount(fc);
       setTriggerPattern(tp);
@@ -343,8 +347,10 @@ const HabitDetailScreen = ({ navigation, route }) => {
         }
       }
 
-      const newRate = await getWeeklyCompletionRate(habitId);
-      setWeekRate(newRate);
+      const newWeekData = await getWeeklyCompletionRate(habitId);
+      setWeekRate(newWeekData?.rate || 0);
+      setWeekDoneCount(newWeekData?.done || 0);
+      setWeekDaysElapsed(newWeekData?.daysElapsed || 0);
       const tp = await getTriggerPattern(habitId);
       setTriggerPattern(tp);
       if (habit?.frequency_type === 'weekly') {
@@ -524,7 +530,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
           {[
             { label: isWeekly ? 'WEEK STREAK' : (habit.type === 'build' ? 'REIN HELD' : 'DAYS CLEAN'), value: streak.current > 0 ? `${streak.current} ${habit.type === 'build' ? '🪔' : '✊'}` : '0', color: streak.current > 0 ? accentColor : colors.textMuted },
             { label: 'BEST', value: `${streak.longest} 🏆`, color: colors.gold },
-            { label: 'THIS WEEK', value: isWeekly && weekProgress ? `${weekProgress.done}/${weekProgress.target}` : `${weekRate}%`, color: weekRate >= 70 ? colors.green : weekRate >= 40 ? colors.gold : colors.red },
+            { label: 'THIS WEEK', value: isWeekly && weekProgress ? `${weekProgress.done}/${weekProgress.target}` : `${weekDoneCount}/${weekDaysElapsed}d`, color: weekRate >= 70 ? colors.green : weekRate >= 40 ? colors.gold : colors.red },
           ].map((s, i) => (
             <View key={i} style={{ flex: 1, backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, padding: Spacing.md, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: colors.separator }}>
               <Text style={{ fontSize: 22, fontWeight: '700', color: s.color }}>{s.value}</Text>

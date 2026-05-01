@@ -9,7 +9,7 @@
 //   - Today highlighted with gold border
 //   - Days before app existed are transparent (not shown as missed)
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   StatusBar, ActivityIndicator, Dimensions,
@@ -29,15 +29,42 @@ const { width } = Dimensions.get('window');
 const CELL = 11;
 const GAP  = 2;
 
-// ── Self-explanatory 90-day heatmap ───────────────────────────────────
+// ── Self-explanatory heatmap with month picker ────────────────────────
 const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
   if (!heatmapData || heatmapData.length === 0) return null;
 
   const today = new Date().toISOString().split('T')[0];
 
-  // Pad to Mon alignment
-  const firstDow = (new Date(heatmapData[0].date).getDay() + 6) % 7;
-  const padded = Array(firstDow).fill(null).concat(heatmapData);
+  // Month picker state — null = show all
+  const [selectedMonth, setSelectedMonth] = useState(null);
+
+  // Build available months from appStartDate to today
+  const availableMonths = useMemo(() => {
+    const months = [];
+    const start = new Date(appStartDate + 'T00:00:00');
+    const end = new Date(today + 'T00:00:00');
+    const d = new Date(start.getFullYear(), start.getMonth(), 1);
+    while (d <= end) {
+      months.push({
+        key: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
+        label: d.toLocaleString('default', { month: 'short', year: '2-digit' }),
+      });
+      d.setMonth(d.getMonth() + 1);
+    }
+    return months;
+  // eslint-disable-next-line
+  }, [appStartDate, today]);
+
+  // Filter heatmap data by selected month
+  const filteredData = useMemo(() => {
+    if (!selectedMonth) return heatmapData;
+    return heatmapData.filter(d => d.date.startsWith(selectedMonth));
+  }, [heatmapData, selectedMonth]);
+
+  // Pad to Mon alignment (use filteredData for display)
+  const displayData = filteredData.length > 0 ? filteredData : heatmapData;
+  const firstDow = (new Date(displayData[0].date).getDay() + 6) % 7;
+  const padded = Array(firstDow).fill(null).concat(displayData);
 
   const weeks = [];
   for (let i = 0; i < padded.length; i += 7) {
@@ -58,10 +85,10 @@ const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
   });
 
   // Summary stats
-  const tracked = heatmapData.filter(d => d.date >= appStartDate);
-  const perfect = tracked.filter(d => d.level === 'all' || d.rate === 1);
-  const partial = tracked.filter(d => d.level === 'partial' || (d.rate > 0 && d.rate < 1));
-  const missed  = tracked.filter(d => d.level === 'missed' || d.rate === 0);
+  const tracked = displayData;
+  const perfect = tracked.filter(d => d.level === 'all');
+  const partial = tracked.filter(d => d.level === 'partial');
+  const missed  = tracked.filter(d => d.level === 'missed');
   const consistency = tracked.length > 0
     ? Math.round(((perfect.length + partial.length) / tracked.length) * 100) : 0;
 
@@ -101,6 +128,29 @@ const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
           <Text style={{ fontSize: 10, color: colors.textDim }}>days tracked</Text>
         </View>
       </View>
+
+      {/* Month picker */}
+      {availableMonths.length > 1 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <TouchableOpacity
+              style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: !selectedMonth ? colors.gold : colors.separator, backgroundColor: !selectedMonth ? colors.goldAlpha15 : 'transparent' }}
+              onPress={() => setSelectedMonth(null)}
+            >
+              <Text style={{ fontSize: 11, color: !selectedMonth ? colors.gold : colors.textDim, fontWeight: !selectedMonth ? '700' : '400' }}>All</Text>
+            </TouchableOpacity>
+            {availableMonths.map(m => (
+              <TouchableOpacity
+                key={m.key}
+                style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: selectedMonth === m.key ? colors.gold : colors.separator, backgroundColor: selectedMonth === m.key ? colors.goldAlpha15 : 'transparent' }}
+                onPress={() => setSelectedMonth(selectedMonth === m.key ? null : m.key)}
+              >
+                <Text style={{ fontSize: 11, color: selectedMonth === m.key ? colors.gold : colors.textDim, fontWeight: selectedMonth === m.key ? '700' : '400' }}>{m.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+      )}
 
       {/* Grid */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -185,6 +235,10 @@ const StatsScreen = ({ navigation }) => {
       const db = await getDatabase();
       const today = new Date();
 
+      // Build date range from app start to today (not 90 days back blindly)
+      const APP_BIRTH_STR = '2026-05-01';
+      const todayStr = today.toISOString().split('T')[0];
+      // dates90 = still used for other queries — we keep it for checkins fetch range
       const dates90 = [];
       for (let i = 89; i >= 0; i--) {
         const d = new Date(today);
@@ -244,16 +298,22 @@ const StatsScreen = ({ navigation }) => {
       const rawStart = firstCheckin?.first_date || APP_BIRTH;
       const appStartDate = rawStart < APP_BIRTH ? APP_BIRTH : rawStart;
 
-      // Build heatmap data — days before app start are 'before_app'
-      const heatmapData = dates90.map(date => {
+      // Build heatmap only from appStartDate to today
+      const heatmapDates = [];
+      const hd = new Date(appStartDate + 'T00:00:00');
+      const hEnd = new Date(todayStr + 'T00:00:00');
+      while (hd <= hEnd) {
+        heatmapDates.push(hd.toISOString().split('T')[0]);
+        hd.setDate(hd.getDate() + 1);
+      }
+      const heatmapData = heatmapDates.map(date => {
         const dayC = checkinMap[date] || [];
-        if (date < appStartDate) return { date, rate: 0, level: 'before_app' };
         const done = dayC.filter(c => c.status === 'done' || c.status === 'resisted').length;
         const rate = habits.length > 0 ? done / habits.length : 0;
-        let level = 'missed';
-        if (dayC.length === 0) level = 'empty';
-        else if (rate === 1)   level = 'all';
-        else if (rate > 0)     level = 'partial';
+        let level = 'empty';
+        if (dayC.length > 0 && rate === 1)  level = 'all';
+        else if (dayC.length > 0 && rate > 0) level = 'partial';
+        else if (dayC.length > 0)            level = 'missed';
         return { date, rate, level };
       });
 
@@ -367,7 +427,7 @@ const StatsScreen = ({ navigation }) => {
               {[
                 { label: 'TOTAL DONE',    value: String(data?.totalDone || 0),          icon: '✅' },
                 { label: 'BEST STREAK',   value: `${data?.bestStreak || 0}d`,            icon: '🪔' },
-                { label: 'THIS MONTH',    value: String(data?.monthDone || 0),           icon: '📅' },
+                { label: 'THIS MONTH',    value: String(data?.monthDone || 0),           icon: '🗓' },
                 { label: 'ACTIVE HABITS', value: String(data?.habits?.length || 0),      icon: '☸'  },
                 { label: 'FREEZE LEFT',   value: String(gamStats?.freezeCount || 0),     icon: '🧊' },
                 { label: 'BADGES',        value: String(data?.milestones?.length || 0),  icon: '🏆' },
