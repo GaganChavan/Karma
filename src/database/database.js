@@ -1,7 +1,8 @@
 // ─── KARMA APP — DATABASE (PHASE D FINAL) ────────────────────────────
-// New columns: habits.is_wfo_skip (auto-skip during WFO)
-// New settings: wfo_mode, wfo_non_negotiables, wfo_city
-// New table: streak_recovery (tracks active recovery challenges)
+// BACKFILL MIGRATION added:
+//   On first launch after XP fix, scans all existing done/resisted
+//   checkins and awards XP retroactively so past work is credited.
+//   Only runs once — guarded by 'xp_backfill_done' setting.
 
 import * as SQLite from 'expo-sqlite';
 
@@ -14,6 +15,7 @@ export const getDatabase = async () => {
     await _initializeTables(_db);
     await _runMigrations(_db);
     await _seedDefaultSettings(_db);
+    await _backfillXP(_db);   // ← NEW: awards XP for past checkins
     console.log('✅ Karma DB ready — Phase D Final');
     return _db;
   } catch (error) {
@@ -28,111 +30,109 @@ const _initializeTables = async (db) => {
     PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS habits (
-      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
-      name                   TEXT NOT NULL CHECK(length(trim(name)) >= 3),
-      icon                   TEXT NOT NULL DEFAULT '⭐',
-      color                  TEXT NOT NULL DEFAULT '#F5A623',
-      type                   TEXT NOT NULL DEFAULT 'build',
-      frequency              TEXT NOT NULL DEFAULT 'daily',
-      days                   TEXT NOT NULL DEFAULT '1,2,3,4,5,6,7',
-      time_of_day            TEXT NOT NULL DEFAULT 'anytime',
-      is_quantifiable        INTEGER NOT NULL DEFAULT 0,
-      daily_target           REAL NOT NULL DEFAULT 1,
-      unit                   TEXT NOT NULL DEFAULT '',
-      frequency_type         TEXT NOT NULL DEFAULT 'daily',
-      weekly_target          INTEGER NOT NULL DEFAULT 7,
-      is_wfo_skip            INTEGER NOT NULL DEFAULT 0,
-      reminder_time          TEXT,
-      reminder_type          TEXT NOT NULL DEFAULT 'none',
-      goal_days              INTEGER NOT NULL DEFAULT 0,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL CHECK(length(trim(name)) >= 3),
+      icon TEXT NOT NULL DEFAULT '⭐',
+      color TEXT NOT NULL DEFAULT '#F5A623',
+      type TEXT NOT NULL DEFAULT 'build',
+      frequency TEXT NOT NULL DEFAULT 'daily',
+      days TEXT NOT NULL DEFAULT '1,2,3,4,5,6,7',
+      time_of_day TEXT NOT NULL DEFAULT 'anytime',
+      is_quantifiable INTEGER NOT NULL DEFAULT 0,
+      daily_target REAL NOT NULL DEFAULT 1,
+      unit TEXT NOT NULL DEFAULT '',
+      frequency_type TEXT NOT NULL DEFAULT 'daily',
+      weekly_target INTEGER NOT NULL DEFAULT 7,
+      is_wfo_skip INTEGER NOT NULL DEFAULT 0,
+      reminder_time TEXT,
+      reminder_type TEXT NOT NULL DEFAULT 'none',
+      goal_days INTEGER NOT NULL DEFAULT 0,
       punishment_sensitivity TEXT NOT NULL DEFAULT 'balanced',
-      streak_freeze_count    INTEGER NOT NULL DEFAULT 0,
-      is_active              INTEGER NOT NULL DEFAULT 1,
-      sort_order             INTEGER NOT NULL DEFAULT 0,
-      created_at             TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-      updated_at             TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+      streak_freeze_count INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     );
 
     CREATE TABLE IF NOT EXISTS checkins (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      habit_id    INTEGER NOT NULL,
-      date        TEXT NOT NULL,
-      status      TEXT NOT NULL CHECK(status IN ('done','missed','slip','resisted','skipped')),
-      note        TEXT,
-      slip_count  INTEGER NOT NULL DEFAULT 0,
-      value       REAL DEFAULT NULL,
-      created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      habit_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('done','missed','slip','resisted','skipped')),
+      note TEXT,
+      slip_count INTEGER NOT NULL DEFAULT 0,
+      value REAL DEFAULT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE,
       UNIQUE(habit_id, date)
     );
 
     CREATE TABLE IF NOT EXISTS milestones (
-      id             INTEGER PRIMARY KEY AUTOINCREMENT,
-      habit_id       INTEGER NOT NULL,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      habit_id INTEGER NOT NULL,
       milestone_days INTEGER NOT NULL,
-      achieved_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      achieved_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE,
       UNIQUE(habit_id, milestone_days)
     );
 
     CREATE TABLE IF NOT EXISTS xp_log (
-      id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       habit_id INTEGER,
-      xp       INTEGER NOT NULL DEFAULT 0,
-      reason   TEXT,
-      date     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      xp INTEGER NOT NULL DEFAULT 0,
+      reason TEXT,
+      date TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS settings (
-      key   TEXT PRIMARY KEY,
+      key TEXT PRIMARY KEY,
       value TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS mood_logs (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      date        TEXT NOT NULL,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
       time_of_day TEXT NOT NULL,
-      mood        INTEGER NOT NULL CHECK(mood BETWEEN 1 AND 5),
-      energy      INTEGER NOT NULL CHECK(energy BETWEEN 1 AND 5),
-      note        TEXT,
-      created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      mood INTEGER NOT NULL CHECK(mood BETWEEN 1 AND 5),
+      energy INTEGER NOT NULL CHECK(energy BETWEEN 1 AND 5),
+      note TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       UNIQUE(date, time_of_day)
     );
 
     CREATE TABLE IF NOT EXISTS slip_triggers (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      habit_id   INTEGER NOT NULL,
-      date       TEXT NOT NULL,
-      trigger    TEXT NOT NULL,
-      note       TEXT,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      habit_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      note TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS weekly_reflections (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      week_start  TEXT NOT NULL UNIQUE,
-      went_well   TEXT,
-      struggled   TEXT,
-      commitment  TEXT,
-      mood_avg    REAL DEFAULT 0,
-      energy_avg  REAL DEFAULT 0,
-      created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      week_start TEXT NOT NULL UNIQUE,
+      went_well TEXT,
+      struggled TEXT,
+      commitment TEXT,
+      mood_avg REAL DEFAULT 0,
+      energy_avg REAL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     );
 
-    -- ── PHASE D ──────────────────────────────────────────────────────
-
-    -- Streak recovery challenges
+    -- ── PHASE D ────────────────────────────────────────────────────────
     CREATE TABLE IF NOT EXISTS streak_recovery (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      habit_id     INTEGER NOT NULL,
-      lost_streak  INTEGER NOT NULL,
-      target_days  INTEGER NOT NULL DEFAULT 2,
-      done_days    INTEGER NOT NULL DEFAULT 0,
-      started_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      habit_id INTEGER NOT NULL,
+      lost_streak INTEGER NOT NULL,
+      target_days INTEGER NOT NULL DEFAULT 2,
+      done_days INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       completed_at TEXT,
-      status       TEXT NOT NULL DEFAULT 'active',
+      status TEXT NOT NULL DEFAULT 'active',
       FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE
     );
 
@@ -152,13 +152,13 @@ const _runMigrations = async (db) => {
         console.log(`✅ Migration: habits.${col}`);
       }
     };
-    await addCol('time_of_day',     "TEXT NOT NULL DEFAULT 'anytime'");
-    await addCol('is_quantifiable', "INTEGER NOT NULL DEFAULT 0");
-    await addCol('daily_target',    "REAL NOT NULL DEFAULT 1");
-    await addCol('unit',            "TEXT NOT NULL DEFAULT ''");
-    await addCol('frequency_type',  "TEXT NOT NULL DEFAULT 'daily'");
-    await addCol('weekly_target',   "INTEGER NOT NULL DEFAULT 7");
-    await addCol('is_wfo_skip',     "INTEGER NOT NULL DEFAULT 0");
+    await addCol('time_of_day',   "TEXT NOT NULL DEFAULT 'anytime'");
+    await addCol('is_quantifiable',"INTEGER NOT NULL DEFAULT 0");
+    await addCol('daily_target',  "REAL NOT NULL DEFAULT 1");
+    await addCol('unit',          "TEXT NOT NULL DEFAULT ''");
+    await addCol('frequency_type',"TEXT NOT NULL DEFAULT 'daily'");
+    await addCol('weekly_target', "INTEGER NOT NULL DEFAULT 7");
+    await addCol('is_wfo_skip',   "INTEGER NOT NULL DEFAULT 0");
 
     const cCols = (await db.getAllAsync("PRAGMA table_info(checkins)")).map(c => c.name);
     if (!cCols.includes('value')) {
@@ -169,36 +169,116 @@ const _runMigrations = async (db) => {
   }
 };
 
+// ── XP BACKFILL ────────────────────────────────────────────────────────
+// Runs ONCE on first launch after the XP fix build.
+// Awards +10 XP for every past 'done' checkin and +15 for 'resisted'
+// that has no corresponding xp_log entry.
+// This gives you credit for all habits completed before the XP fix.
+const _backfillXP = async (db) => {
+  try {
+    // Guard: only run once
+    const done = await db.getFirstAsync(
+      "SELECT value FROM settings WHERE key = 'xp_backfill_done'"
+    );
+
+    // Migrate alter_ego: Neel → Gagan (runs even if backfill already done)
+    try {
+      const egoRow = await db.getFirstAsync("SELECT value FROM settings WHERE key='alter_ego'");
+      if (egoRow?.value === 'Neel') {
+        await db.runAsync("UPDATE settings SET value='Gagan' WHERE key='alter_ego'");
+        await db.runAsync("UPDATE settings SET value='I am Gagan. My mind holds the reins. The horses do not rule me.' WHERE key='identity_statement'");
+        console.log('✅ Migrated: Neel → Gagan');
+      }
+    } catch (e) { console.warn('Name migration:', e.message); }
+
+    if (done?.value === 'true') return;
+
+    console.log('⚡ Running XP backfill for past checkins...');
+
+    // Get all done/resisted checkins that have no xp_log entry
+    const unbilledCheckins = await db.getAllAsync(`
+      SELECT c.id, c.habit_id, c.status, c.date, h.name
+      FROM checkins c
+      LEFT JOIN habits h ON h.id = c.habit_id
+      LEFT JOIN xp_log x ON x.habit_id = c.habit_id AND date(x.date) = c.date AND x.xp > 0
+      WHERE c.status IN ('done', 'resisted')
+        AND x.id IS NULL
+    `);
+
+    if (!unbilledCheckins || unbilledCheckins.length === 0) {
+      console.log('⚡ XP backfill: nothing to backfill');
+    } else {
+      // Calculate total XP to award
+      let totalXP = 0;
+      for (const c of unbilledCheckins) {
+        const xp = c.status === 'resisted' ? 15 : 10;
+        totalXP += xp;
+        // Log each one
+        await db.runAsync(
+          `INSERT INTO xp_log (habit_id, xp, reason, date)
+           VALUES (?, ?, ?, ?)`,
+          [c.habit_id, xp, `Backfill: ${c.name || 'habit'} — ${c.status}`, c.date]
+        );
+      }
+
+      // Update total_xp setting
+      const currentXPRow = await db.getFirstAsync("SELECT value FROM settings WHERE key = 'total_xp'");
+      const currentXP = parseInt(currentXPRow?.value || '0');
+      const newXP = currentXP + totalXP;
+      await db.runAsync(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('total_xp', ?)",
+        [String(newXP)]
+      );
+      console.log(`⚡ XP backfill done: +${totalXP} XP for ${unbilledCheckins.length} past checkins → total: ${newXP}`);
+    }
+
+    // Mark as done so it never runs again
+    await db.runAsync(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES ('xp_backfill_done', 'true')"
+    );
+  } catch (err) {
+    // Never crash the app over XP backfill
+    console.warn('XP backfill warning:', err.message);
+  }
+};
+
 const _seedDefaultSettings = async (db) => {
   const defaults = [
-    ['alter_ego',             'Neel'],
-    ['week_starts',           'monday'],
-    ['total_xp',              '0'],
-    ['notification_master',   'true'],
-    ['app_theme',             'dark'],
-    ['identity_statement',    'I am Neel. My mind holds the reins. The horses do not rule me.'],
-    ['identity_shown_date',   ''],
-    ['wa_daily',              'true'],
-    ['wa_weekly',             'true'],
-    ['last_perfect_day',      ''],
-    ['last_freeze_award',     ''],
-    ['streak_freeze_count',   '0'],
-    ['splash_image_uri',      ''],
-    ['splash_image_type',     'default'],
+    ['alter_ego',           'Gagan'],
+    ['week_starts',         'monday'],
+    ['total_xp',            '0'],
+    ['notification_master', 'true'],
+    ['app_theme',           'dark'],
+    ['identity_statement',  'I am Gagan. My mind holds the reins. The horses do not rule me.'],
+    ['identity_shown_date', ''],
+    ['wa_daily',            'true'],
+    ['wa_weekly',           'true'],
+    ['last_perfect_day',    ''],
+    ['last_freeze_award',   ''],
+    ['streak_freeze_count', '0'],
+    ['splash_image_uri',    ''],
+    ['splash_image_type',   'default'],
     // Phase D
-    ['wfo_mode',              'false'],
-    ['wfo_city',              'Bangalore'],
-    ['home_city',             'Hassan'],
-    ['wfo_non_negotiables',   ''],  // comma-separated habit IDs
-    ['wfo_start_date',        ''],
-    ['wfo_end_date',          ''],
-    ['recovery_mode_shown',   ''],
+    ['wfo_mode',            'false'],
+    ['wfo_city',            'Bangalore'],
+    ['home_city',           'Hassan'],
+    ['wfo_non_negotiables', ''],
+    ['wfo_start_date',      ''],
+    ['wfo_end_date',        ''],
+    ['recovery_mode_shown', ''],
+    // Backfill guard
+    ['xp_backfill_done',   'false'],
   ];
   for (const [key, value] of defaults) {
-    await db.runAsync('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', [key, value]);
+    await db.runAsync(
+      'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)',
+      [key, value]
+    );
   }
 };
 
 export const closeDatabase = async () => {
-  if (_db) { try { await _db.closeAsync(); _db = null; } catch {} }
+  if (_db) {
+    try { await _db.closeAsync(); _db = null; } catch {}
+  }
 };

@@ -609,17 +609,35 @@ const HabitDetailScreen = ({ navigation, route }) => {
             return (
               <View key={d.dateStr} style={{ alignItems: 'center', gap: 7, flex: 1 }}>
                 <Text style={{ ...Typography.caption2, color: d.isToday ? colors.gold : colors.textDim }}>{d.label}</Text>
-                <View style={{
-                  width: 34, height: 34, borderRadius: 17,
-                  backgroundColor: done ? accentColor : slip ? colors.red+'55' : miss ? colors.red+'25' : skip ? colors.backgroundElevated : d.isToday ? colors.goldAlpha15 : colors.backgroundCard,
-                  borderWidth: d.isToday ? 2 : 1,
-                  borderColor: d.isToday ? colors.gold : done ? accentColor : slip ? colors.red : colors.separator,
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Text style={{ fontSize: isQuantifiable ? 8 : 11, color: done ? '#000' : colors.textDim }}>
-                    {isQuantifiable && val ? `${val}` : done ? '✓' : slip ? '✗' : miss ? '–' : skip ? '⏭' : ''}
-                  </Text>
-                </View>
+                {(() => {
+                  // Intensity coloring for quantifiable habits
+                  let bgColor, textColor = '#000';
+                  if (done && isQuantifiable && val) {
+                    const ratio = Math.min(val / dailyTarget, 1.5);
+                    const opacity = ratio >= 1   ? 'FF'  // 100%+ → full solid
+                                  : ratio >= 0.75 ? 'CC'  // 75–99% → 80%
+                                  : ratio >= 0.5  ? '88'  // 50–74% → 55%
+                                  : ratio >= 0.25 ? '55'  // 25–49% → 33%
+                                  :                 '33'; // <25% → 20%
+                    bgColor = accentColor + opacity;
+                    textColor = ratio >= 0.75 ? '#000' : colors.textMuted;
+                  } else {
+                    bgColor = done ? accentColor : slip ? colors.red+'55' : miss ? colors.red+'25' : skip ? colors.backgroundElevated : d.isToday ? colors.goldAlpha15 : colors.backgroundCard;
+                  }
+                  return (
+                    <View style={{
+                      width: 34, height: 34, borderRadius: 17,
+                      backgroundColor: bgColor,
+                      borderWidth: d.isToday ? 2 : 1,
+                      borderColor: d.isToday ? colors.gold : done ? accentColor : slip ? colors.red : colors.separator,
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Text style={{ fontSize: isQuantifiable ? 8 : 11, color: done ? textColor : colors.textDim }}>
+                        {isQuantifiable && val ? `${val}` : done ? '✓' : slip ? '✗' : miss ? '–' : skip ? '⏭' : ''}
+                      </Text>
+                    </View>
+                  );
+                })()}
               </View>
             );
           })}

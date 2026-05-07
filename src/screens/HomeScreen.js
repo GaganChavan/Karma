@@ -366,7 +366,7 @@ const HomeScreen = ({ navigation }) => {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => _loadData(true)} tintColor={colors.gold} />
         }
-        scrollEnabled={!reorderMode} // disable scroll while reordering for cleaner UX
+        showsVerticalScrollIndicator={false}
       >
         {/* Header */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: Spacing.xl, paddingTop: Spacing.lg, paddingBottom: Spacing.xl }}>

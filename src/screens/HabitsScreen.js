@@ -1,26 +1,79 @@
-// ─── KARMA APP — HABITS SCREEN (PHASE 7) ─────────────────────────────
-// Full habit management. Active + archived. Clean Apple-style list.
+// ─── KARMA APP — HABITS SCREEN ──────────────────────────────────────
+// NEW: 7-day dots (Mon→Sun, current week) shown per habit
+//      Gold = done/resisted, Red = slip/missed, Grey = skipped, Dark = no entry
+//      Today's dot has gold border. Week boundary matches app-wide Mon start.
 
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, Alert, ActivityIndicator,
-  Switch,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  StatusBar, Alert, ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView }   from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Colors, Typography, Spacing, Radius } from '../constants/colors';
+import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
 import { getDatabase } from '../database/database';
 import { archiveHabit, getSetting } from '../database/habitService';
 import { cancelHabitNotification } from '../services/notificationService';
 
+// Returns Mon→Sun dates of current week
+const getCurrentWeekDates = () => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dow = today.getDay(); // 0=Sun
+  const daysFromMon = dow === 0 ? 6 : dow - 1;
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - daysFromMon + i);
+    dates.push({
+      dateStr: d.toISOString().split('T')[0],
+      label: ['M','T','W','T','F','S','S'][i],
+      isToday: i === daysFromMon,
+      isFuture: i > daysFromMon,
+    });
+  }
+  return dates;
+};
+
+// 7-dot strip component
+const WeekDots = ({ habitId, weekDates, checkinMap, accentColor, colors }) => (
+  <View style={{ flexDirection: 'row', gap: 4, marginTop: 6 }}>
+    {weekDates.map((d, i) => {
+      const status = checkinMap[habitId]?.[d.dateStr];
+      const done = status === 'done' || status === 'resisted';
+      const bad  = status === 'missed' || status === 'slip';
+      const skip = status === 'skipped';
+      const bg   = done ? accentColor
+                 : bad  ? colors.red + '99'
+                 : skip ? colors.backgroundElevated
+                 : colors.backgroundCard;
+      return (
+        <View key={i} style={{ alignItems: 'center', gap: 2 }}>
+          <View style={{
+            width: 9, height: 9, borderRadius: 5,
+            backgroundColor: d.isFuture ? 'transparent' : bg,
+            borderWidth: d.isToday ? 1.5 : d.isFuture ? 0 : 0,
+            borderColor: colors.gold,
+            opacity: d.isFuture ? 0.2 : 1,
+          }} />
+          <Text style={{ fontSize: 7, color: d.isToday ? colors.gold : colors.textDim }}>{d.label}</Text>
+        </View>
+      );
+    })}
+  </View>
+);
+
 const HabitsScreen = ({ navigation }) => {
-  const [habits,       setHabits]       = useState([]);
-  const [archived,     setArchived]     = useState([]);
+  const { colors } = useTheme();
+  const [habits, setHabits]         = useState([]);
+  const [archived, setArchived]     = useState([]);
   const [showArchived, setShowArchived] = useState(false);
-  const [loading,      setLoading]      = useState(true);
-  const [alterEgo,     setAlterEgo]     = useState('Neel');
-  const [error,        setError]        = useState(null);
+  const [checkinMap, setCheckinMap] = useState({});   // habitId → {dateStr: status}
+  const [loading, setLoading]       = useState(true);
+  const [alterEgo, setAlterEgo]     = useState('Gagan');
+  const [error, setError]           = useState(null);
+
+  const weekDates = getCurrentWeekDates();
 
   useFocusEffect(useCallback(() => { _loadData(); }, []));
 
@@ -28,20 +81,33 @@ const HabitsScreen = ({ navigation }) => {
     try {
       setLoading(true);
       setError(null);
-      const db  = await getDatabase();
+      const db = await getDatabase();
       const ego = await getSetting('alter_ego');
 
-      const active = await db.getAllAsync(
-        'SELECT * FROM habits WHERE is_active = 1 ORDER BY sort_order ASC, created_at ASC'
+      const [active, archivedList] = await Promise.all([
+        db.getAllAsync('SELECT * FROM habits WHERE is_active=1 ORDER BY sort_order ASC, created_at ASC'),
+        db.getAllAsync('SELECT * FROM habits WHERE is_active=0 ORDER BY updated_at DESC'),
+      ]);
+
+      // Fetch this week's checkins for all habits in ONE query
+      const fromDate = weekDates[0].dateStr;
+      const toDate   = weekDates[6].dateStr;
+      const weekCheckins = await db.getAllAsync(
+        `SELECT habit_id, date, status FROM checkins WHERE date >= ? AND date <= ?`,
+        [fromDate, toDate]
       ) || [];
 
-      const archivedList = await db.getAllAsync(
-        'SELECT * FROM habits WHERE is_active = 0 ORDER BY updated_at DESC'
-      ) || [];
+      // Build map: habitId → {dateStr: status}
+      const cMap = {};
+      weekCheckins.forEach(c => {
+        if (!cMap[c.habit_id]) cMap[c.habit_id] = {};
+        cMap[c.habit_id][c.date] = c.status;
+      });
 
-      setHabits(active);
-      setArchived(archivedList);
-      setAlterEgo(ego || 'Neel');
+      setHabits(active || []);
+      setArchived(archivedList || []);
+      setCheckinMap(cMap);
+      setAlterEgo(ego || 'Gagan');
     } catch (err) {
       setError(err.message || 'Failed to load habits');
     } finally {
@@ -52,22 +118,13 @@ const HabitsScreen = ({ navigation }) => {
   const _archive = (habit) => {
     Alert.alert(
       'Archive Habit',
-      `Archive "${habit.name}"?\n\nYour history and streaks are preserved. You can restore it later.`,
+      `Archive "${habit.name}"?\n\nYour history and streaks are preserved.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text:  'Archive',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await archiveHabit(habit.id);
-              await cancelHabitNotification(habit.id);
-              await _loadData();
-            } catch (err) {
-              Alert.alert('Error', err.message);
-            }
-          },
-        },
+        { text: 'Archive', style: 'destructive', onPress: async () => {
+            try { await archiveHabit(habit.id); await cancelHabitNotification(habit.id); await _loadData(); }
+            catch (err) { Alert.alert('Error', err.message); }
+        }},
       ]
     );
   };
@@ -76,152 +133,174 @@ const HabitsScreen = ({ navigation }) => {
     try {
       const db = await getDatabase();
       await db.runAsync(
-        `UPDATE habits SET is_active = 1, updated_at = datetime('now','localtime') WHERE id = ?`,
+        `UPDATE habits SET is_active=1, updated_at=datetime('now','localtime') WHERE id=?`,
         [habit.id]
       );
       await _loadData();
       Alert.alert('✅ Restored', `"${habit.name}" is active again.`);
-    } catch (err) {
-      Alert.alert('Error', err.message);
-    }
+    } catch (err) { Alert.alert('Error', err.message); }
   };
 
-  const _renderHabit = (habit, isArchived = false) => (
-    <TouchableOpacity
-      key={habit.id}
-      style={[styles.habitRow, isArchived && { opacity: 0.6 }]}
-      onPress={() => {
-        if (!isArchived) {
-          navigation.navigate('HabitDetail', { habitId: habit.id });
-        }
-      }}
-      activeOpacity={isArchived ? 1 : 0.7}
-    >
-      {/* Icon */}
-      <View style={[styles.habitIcon, { backgroundColor: (habit.color || Colors.gold) + '20' }]}>
-        <Text style={{ fontSize: 22 }}>{habit.icon}</Text>
-      </View>
+  const _renderHabit = (habit, isArchived = false) => {
+    const accent = habit.color || colors.gold;
+    // Today's dot to determine if done
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStatus = checkinMap[habit.id]?.[todayStr];
+    const doneToday = todayStatus === 'done' || todayStatus === 'resisted';
 
-      {/* Info */}
-      <View style={styles.habitInfo}>
-        <Text style={styles.habitName}>{habit.name}</Text>
-        <View style={styles.habitMeta}>
-          <Text style={[styles.habitType, {
-            color: habit.type === 'build' ? Colors.green : Colors.red,
-          }]}>
-            {habit.type === 'build' ? '🟢 Build' : '🔴 Break'}
-          </Text>
-          <Text style={styles.habitDot}>·</Text>
-          <Text style={styles.habitFreq}>
-            {habit.frequency === 'daily' ? 'Daily' : 'Selected days'}
-          </Text>
-          {habit.reminder_type !== 'none' && habit.reminder_time && (
-            <>
-              <Text style={styles.habitDot}>·</Text>
-              <Text style={styles.habitReminder}>
-                {habit.reminder_type === 'hard' ? '⏰' : '🔔'} {habit.reminder_time}
-              </Text>
-            </>
+    return (
+      <TouchableOpacity
+        key={habit.id}
+        style={[styles.habitRow, {
+          borderLeftWidth: doneToday ? 3 : 0,
+          borderLeftColor: accent,
+          opacity: isArchived ? 0.6 : 1,
+        }]}
+        onPress={() => { if (!isArchived) navigation.navigate('HabitDetail', { habitId: habit.id }); }}
+        activeOpacity={isArchived ? 1 : 0.75}
+      >
+        {/* Icon */}
+        <View style={[styles.habitIcon, { backgroundColor: accent + '20' }]}>
+          <Text style={{ fontSize: 22 }}>{habit.icon}</Text>
+        </View>
+
+        {/* Info + dots */}
+        <View style={{ flex: 1, gap: 3 }}>
+          <Text style={{ ...Typography.callout, color: colors.textPrimary, fontWeight: '600' }}>{habit.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <Text style={{ ...Typography.caption1, fontWeight: '700', color: habit.type === 'build' ? colors.green : colors.red }}>
+              {habit.type === 'build' ? '🟢 Build' : '🔴 Break'}
+            </Text>
+            <Text style={{ ...Typography.caption1, color: colors.textDim }}>·</Text>
+            <Text style={{ ...Typography.caption1, color: colors.textDim }}>
+              {habit.frequency_type === 'weekly' ? `${habit.weekly_target}×/week` : 'Daily'}
+            </Text>
+            {habit.is_quantifiable ? (
+              <>
+                <Text style={{ ...Typography.caption1, color: colors.textDim }}>·</Text>
+                <Text style={{ ...Typography.caption1, color: colors.textDim }}>
+                  {habit.daily_target} {habit.unit}
+                </Text>
+              </>
+            ) : null}
+          </View>
+
+          {/* 7-day dots — only for active habits */}
+          {!isArchived && (
+            <WeekDots
+              habitId={habit.id}
+              weekDates={weekDates}
+              checkinMap={checkinMap}
+              accentColor={accent}
+              colors={colors}
+            />
           )}
         </View>
-      </View>
 
-      {/* Actions */}
-      {isArchived ? (
-        <TouchableOpacity
-          style={styles.restoreBtn}
-          onPress={() => _restore(habit)}
-        >
-          <Text style={styles.restoreBtnText}>Restore</Text>
-        </TouchableOpacity>
-      ) : (
-        <View style={styles.habitActions}>
+        {/* Actions */}
+        {isArchived ? (
           <TouchableOpacity
-            style={styles.editBtn}
-            onPress={() => navigation.navigate('AddHabit', { habitId: habit.id })}
+            style={[styles.actionBtn, { borderColor: colors.green + '55' }]}
+            onPress={() => _restore(habit)}
           >
-            <Text style={styles.editBtnText}>Edit</Text>
+            <Text style={{ ...Typography.caption1, color: colors.green, fontWeight: '600' }}>Restore</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.archiveBtn}
-            onPress={() => _archive(habit)}
-          >
-            <Text style={styles.archiveBtnText}>Archive</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </TouchableOpacity>
+        ) : (
+          <View style={{ gap: 6 }}>
+            <TouchableOpacity
+              style={[styles.actionBtn, { borderColor: colors.gold + '55' }]}
+              onPress={() => navigation.navigate('AddHabit', { habitId: habit.id })}
+            >
+              <Text style={{ ...Typography.caption1, color: colors.gold, fontWeight: '600' }}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, { borderColor: colors.separator }]}
+              onPress={() => _archive(habit)}
+            >
+              <Text style={{ ...Typography.caption1, color: colors.textMuted }}>Archive</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading) return (
+    <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+      <StatusBar barStyle="light-content" />
+      <ActivityIndicator size="large" color={colors.gold} />
+      <Text style={{ ...Typography.body, color: colors.textMuted }}>Loading habits...</Text>
+    </View>
   );
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <StatusBar barStyle={Colors.statusBar} backgroundColor={Colors.background} />
-        <ActivityIndicator size="large" color={Colors.gold} />
-        <Text style={styles.loadText}>Loading habits...</Text>
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={styles.center}>
-        <StatusBar barStyle={Colors.statusBar} backgroundColor={Colors.background} />
-        <Text style={styles.errText}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={_loadData}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  if (error) return (
+    <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+      <Text style={{ ...Typography.body, color: colors.red, textAlign: 'center' }}>{error}</Text>
+      <TouchableOpacity style={{ backgroundColor: colors.gold, paddingHorizontal: 24, paddingVertical: 12, borderRadius: Radius.lg }} onPress={_loadData}>
+        <Text style={{ ...Typography.headline, color: '#000' }}>Retry</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   const buildHabits = habits.filter(h => h.type === 'build');
   const breakHabits = habits.filter(h => h.type === 'break');
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
-      <StatusBar barStyle={Colors.statusBar} backgroundColor={Colors.background} />
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
+      <StatusBar barStyle="light-content" />
 
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Habits</Text>
+      <View style={[styles.header, { borderBottomColor: colors.separator }]}>
+        <Text style={{ ...Typography.title2, color: colors.textPrimary }}>Habits</Text>
         <TouchableOpacity
-          style={styles.addBtn}
+          style={{ backgroundColor: colors.gold, paddingHorizontal: 16, paddingVertical: 8, borderRadius: Radius.full }}
           onPress={() => navigation.navigate('AddHabit')}
         >
-          <Text style={styles.addBtnText}>+ New</Text>
+          <Text style={{ ...Typography.footnote, color: '#000', fontWeight: '700' }}>+ New</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={{ padding: Spacing.xl }} showsVerticalScrollIndicator={false}>
+
         {/* Summary */}
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryCard}>
-            <Text style={[styles.summaryNum, { color: Colors.green }]}>{buildHabits.length}</Text>
-            <Text style={styles.summaryLabel}>Building</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={[styles.summaryNum, { color: Colors.red }]}>{breakHabits.length}</Text>
-            <Text style={styles.summaryLabel}>Breaking</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={[styles.summaryNum, { color: Colors.textMuted }]}>{archived.length}</Text>
-            <Text style={styles.summaryLabel}>Archived</Text>
-          </View>
+        <View style={{ flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.xl }}>
+          {[
+            { num: buildHabits.length, label: 'Building', color: colors.green },
+            { num: breakHabits.length, label: 'Breaking', color: colors.red },
+            { num: archived.length,   label: 'Archived', color: colors.textMuted },
+          ].map((s, i) => (
+            <View key={i} style={{ flex: 1, backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.md, alignItems: 'center', gap: 4 }}>
+              <Text style={{ fontSize: 26, fontWeight: '700', color: s.color }}>{s.num}</Text>
+              <Text style={{ ...Typography.caption2, color: colors.textDim }}>{s.label}</Text>
+            </View>
+          ))}
         </View>
+
+        {/* Week legend */}
+        {habits.length > 0 && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.md, paddingHorizontal: Spacing.xs }}>
+            <Text style={{ ...Typography.caption2, color: colors.textDim }}>This week:</Text>
+            {[
+              { color: colors.gold,        label: 'Done' },
+              { color: colors.red + '99',  label: 'Missed' },
+              { color: colors.backgroundElevated, label: 'Skipped', border: true },
+            ].map((l, i) => (
+              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: l.color, borderWidth: l.border ? 1 : 0, borderColor: colors.separator }} />
+                <Text style={{ fontSize: 9, color: colors.textDim }}>{l.label}</Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* Build habits */}
         {buildHabits.length > 0 && (
           <>
-            <Text style={styles.groupLabel}>BUILD HABITS</Text>
-            <View style={styles.group}>
+            <Text style={[styles.groupLabel, { color: colors.textDim }]}>BUILD HABITS</Text>
+            <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: colors.separator, marginBottom: Spacing.xs }}>
               {buildHabits.map((h, i) => (
                 <View key={h.id}>
-                  {i > 0 && <View style={styles.separator} />}
+                  {i > 0 && <View style={{ height: 1, backgroundColor: colors.separator, marginHorizontal: Spacing.lg }} />}
                   {_renderHabit(h)}
                 </View>
               ))}
@@ -232,11 +311,11 @@ const HabitsScreen = ({ navigation }) => {
         {/* Break habits */}
         {breakHabits.length > 0 && (
           <>
-            <Text style={styles.groupLabel}>BREAK HABITS</Text>
-            <View style={styles.group}>
+            <Text style={[styles.groupLabel, { color: colors.textDim }]}>BREAK HABITS</Text>
+            <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: colors.separator, marginBottom: Spacing.xs }}>
               {breakHabits.map((h, i) => (
                 <View key={h.id}>
-                  {i > 0 && <View style={styles.separator} />}
+                  {i > 0 && <View style={{ height: 1, backgroundColor: colors.separator, marginHorizontal: Spacing.lg }} />}
                   {_renderHabit(h)}
                 </View>
               ))}
@@ -244,34 +323,33 @@ const HabitsScreen = ({ navigation }) => {
           </>
         )}
 
-        {/* Empty state */}
+        {/* Empty */}
         {habits.length === 0 && (
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>☸</Text>
-            <Text style={styles.emptyTitle}>No habits yet, {alterEgo}</Text>
-            <Text style={styles.emptySub}>
-              Tap New above to add your first habit and begin building karma.
+          <View style={{ alignItems: 'center', paddingVertical: 60, gap: 14 }}>
+            <Text style={{ fontSize: 56 }}>☸</Text>
+            <Text style={{ ...Typography.title3, color: colors.textSecondary, textAlign: 'center' }}>No habits yet, {alterEgo}</Text>
+            <Text style={{ ...Typography.body, color: colors.textDim, textAlign: 'center', lineHeight: 24 }}>
+              Tap New above to add your first habit.
             </Text>
           </View>
         )}
 
-        {/* Archived section */}
+        {/* Archived */}
         {archived.length > 0 && (
           <>
             <TouchableOpacity
-              style={styles.archivedToggle}
+              style={{ paddingVertical: Spacing.lg, marginTop: Spacing.lg }}
               onPress={() => setShowArchived(!showArchived)}
             >
-              <Text style={styles.archivedToggleText}>
-                {showArchived ? '▼' : '▶'}  {archived.length} Archived Habit{archived.length > 1 ? 's' : ''}
+              <Text style={{ ...Typography.callout, color: colors.textMuted }}>
+                {showArchived ? '▼' : '▶'} {archived.length} Archived Habit{archived.length > 1 ? 's' : ''}
               </Text>
             </TouchableOpacity>
-
             {showArchived && (
-              <View style={styles.group}>
+              <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: colors.separator }}>
                 {archived.map((h, i) => (
                   <View key={h.id}>
-                    {i > 0 && <View style={styles.separator} />}
+                    {i > 0 && <View style={{ height: 1, backgroundColor: colors.separator, marginHorizontal: Spacing.lg }} />}
                     {_renderHabit(h, true)}
                   </View>
                 ))}
@@ -287,141 +365,11 @@ const HabitsScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: Colors.background },
-  center: {
-    flex: 1, backgroundColor: Colors.background,
-    alignItems: 'center', justifyContent: 'center', gap: 14,
-  },
-  loadText: { ...Typography.body, color: Colors.textMuted },
-  errText:  { ...Typography.body, color: Colors.red, textAlign: 'center' },
-  retryBtn: {
-    backgroundColor: Colors.gold,
-    paddingHorizontal: 24, paddingVertical: 12, borderRadius: Radius.lg,
-  },
-  retryText: { ...Typography.headline, color: '#000' },
-
-  header: {
-    flexDirection:     'row',
-    justifyContent:    'space-between',
-    alignItems:        'center',
-    paddingHorizontal: Spacing.xl,
-    paddingVertical:   Spacing.lg,
-    borderBottomWidth:  1,
-    borderBottomColor:  Colors.separator,
-  },
-  headerTitle: { ...Typography.title2, color: Colors.textPrimary },
-  addBtn: {
-    backgroundColor: Colors.gold,
-    paddingHorizontal: 16, paddingVertical: 8,
-    borderRadius:    Radius.full,
-  },
-  addBtnText: { ...Typography.footnote, color: '#000', fontWeight: '700' },
-
-  scroll:        { flex: 1 },
-  scrollContent: { padding: Spacing.xl, gap: 0 },
-
-  // Summary
-  summaryRow: {
-    flexDirection: 'row',
-    gap:            Spacing.sm,
-    marginBottom:  Spacing.xl,
-  },
-  summaryCard: {
-    flex:           1,
-    backgroundColor: Colors.backgroundCard,
-    borderRadius:   Radius.lg,
-    borderWidth:     1,
-    borderColor:    Colors.separator,
-    padding:        Spacing.md,
-    alignItems:     'center',
-    gap:             4,
-  },
-  summaryNum:   { fontSize: 26, fontWeight: '700' },
-  summaryLabel: { ...Typography.caption2, color: Colors.textDim },
-
-  // Group
-  groupLabel: {
-    ...Typography.caption2,
-    color:         Colors.textDim,
-    letterSpacing: 1.5,
-    marginBottom:  Spacing.xs,
-    marginTop:     Spacing.lg,
-  },
-  group: {
-    backgroundColor: Colors.backgroundCard,
-    borderRadius:    Radius.lg,
-    overflow:        'hidden',
-    borderWidth:      1,
-    borderColor:     Colors.separator,
-    marginBottom:    Spacing.xs,
-  },
-  separator: {
-    height: 1,
-    backgroundColor: Colors.separator,
-    marginHorizontal: Spacing.lg,
-  },
-
-  // Habit row
-  habitRow: {
-    flexDirection:  'row',
-    alignItems:     'center',
-    padding:        Spacing.lg,
-    gap:            Spacing.md,
-  },
-  habitIcon: {
-    width: 44, height: 44, borderRadius: Radius.md,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  habitInfo:     { flex: 1, gap: 5 },
-  habitName:     { ...Typography.callout, color: Colors.textPrimary, fontWeight: '600' },
-  habitMeta:     { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 5 },
-  habitType:     { ...Typography.caption1, fontWeight: '600' },
-  habitDot:      { ...Typography.caption1, color: Colors.textDim },
-  habitFreq:     { ...Typography.caption1, color: Colors.textDim },
-  habitReminder: { ...Typography.caption1, color: Colors.textDim },
-
-  habitActions: { flexDirection: 'row', gap: Spacing.sm },
-  editBtn: {
-    borderWidth:       1,
-    borderColor:       Colors.gold + '55',
-    borderRadius:      Radius.md,
-    paddingHorizontal: 10,
-    paddingVertical:    6,
-  },
-  editBtnText:    { ...Typography.caption1, color: Colors.gold, fontWeight: '600' },
-  archiveBtn: {
-    borderWidth:       1,
-    borderColor:       Colors.separator,
-    borderRadius:      Radius.md,
-    paddingHorizontal: 10,
-    paddingVertical:    6,
-  },
-  archiveBtnText: { ...Typography.caption1, color: Colors.textMuted },
-
-  restoreBtn: {
-    borderWidth:       1,
-    borderColor:       Colors.green + '55',
-    borderRadius:      Radius.md,
-    paddingHorizontal: 12,
-    paddingVertical:    7,
-  },
-  restoreBtnText: { ...Typography.caption1, color: Colors.green, fontWeight: '600' },
-
-  // Empty
-  empty: {
-    alignItems: 'center', paddingVertical: 60, gap: 14,
-  },
-  emptyIcon:  { fontSize: 56 },
-  emptyTitle: { ...Typography.title3, color: Colors.textSecondary, textAlign: 'center' },
-  emptySub:   { ...Typography.body, color: Colors.textDim, textAlign: 'center', lineHeight: 24 },
-
-  // Archived toggle
-  archivedToggle: {
-    paddingVertical:   Spacing.lg,
-    paddingHorizontal: Spacing.xs,
-    marginTop:         Spacing.lg,
-  },
-  archivedToggleText: { ...Typography.callout, color: Colors.textMuted },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, borderBottomWidth: 1 },
+  groupLabel: { ...Typography.caption2, letterSpacing: 1.5, marginBottom: Spacing.xs, marginTop: Spacing.lg },
+  habitRow: { flexDirection: 'row', alignItems: 'center', padding: Spacing.lg, gap: Spacing.md, paddingLeft: Spacing.md },
+  habitIcon: { width: 44, height: 44, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  actionBtn: { borderWidth: 1, borderRadius: Radius.md, paddingHorizontal: 10, paddingVertical: 5, alignItems: 'center' },
 });
 
 export default HabitsScreen;
