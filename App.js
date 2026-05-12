@@ -1,11 +1,12 @@
 // ─── KARMA APP — ROOT (PHASE E) ──────────────────────────────────────
 // Phase E additions:
-// - runAutoSkip() called after getDatabase() in _loadTheme
-// - Marks yesterday's unlogged habits as auto_skipped (-3 XP)
-// - Paused habits are excluded from auto-skip automatically
-// - Everything else unchanged
+// - runAutoSkip() after DB init — marks yesterday's unlogged habits
+// - _wasScheduledOn() fixed: comma-separated days + correct day numbering
+// - Auto-skip toast: Alert if habits were missed without logging
+// - Everything else identical to Phase C
 
 import React, { useState, useEffect, useRef } from 'react';
+import { Alert }                    from 'react-native';
 import { NavigationContainer }      from '@react-navigation/native';
 import { StatusBar }                from 'expo-status-bar';
 import { SafeAreaProvider }         from 'react-native-safe-area-context';
@@ -17,7 +18,12 @@ import AppNavigator                 from './src/navigation/AppNavigator';
 import { ThemeProvider, useTheme, updateStaticColors } from './src/constants/ThemeContext';
 import { configureNotifications, scheduleAllHabitNotifications } from './src/services/notificationService';
 import { getDatabase }              from './src/database/database';
-import { getSetting, setSetting, getHabitsForAutoSkip, getCheckinForDate, insertAutoSkipCheckin } from './src/database/habitService';
+import {
+  getSetting,
+  getHabitsForAutoSkip,
+  getCheckinForDate,
+  insertAutoSkipCheckin,
+} from './src/database/habitService';
 import { deductAutoSkipXP }         from './src/services/gamificationService';
 
 configureNotifications();
@@ -26,7 +32,7 @@ const PHASE = { SPLASH: 'splash', IDENTITY: 'identity', APP: 'app' };
 
 // ── Phase E: Auto-skip helpers ────────────────────────────────────────
 
-// Returns yesterday's date as YYYY-MM-DD
+// Returns yesterday's date as YYYY-MM-DD string
 const _getYesterdayStr = () => {
   const d = new Date();
   d.setDate(d.getDate() - 1);
@@ -36,59 +42,73 @@ const _getYesterdayStr = () => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
-// Returns true if habit was scheduled to run on a given date
+// Returns true if a habit was scheduled to run on dateStr.
+// FIX: days stored as comma-separated '1,2,3,4,5,6,7'
+//      app format: 1=Mon, 2=Tue ... 6=Sat, 7=Sun
+//      getDay() returns: 0=Sun, 1=Mon ... 6=Sat
+//      conversion: getDay()===0 → appDay=7, else appDay=getDay()
 const _wasScheduledOn = (habit, dateStr) => {
   if (habit.frequency === 'daily') return true;
+
   if (habit.frequency === 'specific_days') {
     try {
-      const scheduledDays = JSON.parse(habit.days || '[]');
-      const date = new Date(dateStr + 'T00:00:00');
-      return scheduledDays.includes(date.getDay());
+      const days = habit.days;
+      if (!days) return false;
+      const scheduledDays = days.split(',').map(s => parseInt(s.trim(), 10));
+      const jsDay  = new Date(dateStr + 'T00:00:00').getDay(); // 0=Sun..6=Sat
+      const appDay = jsDay === 0 ? 7 : jsDay;                  // 1=Mon..7=Sun
+      return scheduledDays.includes(appDay);
     } catch { return false; }
   }
-  // Weekly (X/week) — skip auto-skip logic, can't determine which day was required
+
+  // Weekly (X/week) — can't determine which specific day was required
   return false;
 };
 
-// Scans yesterday and marks unlogged active non-paused habits as auto_skipped
-// INSERT OR IGNORE guarantees existing checkins (done/missed/etc) are never touched
+// Scans yesterday's habits. Marks unlogged ones as auto_skipped and deducts 3 XP.
+// Returns count of habits that were auto-skipped (for the toast).
+// INSERT OR IGNORE guarantees existing checkins (done/missed/etc) are NEVER touched.
 const runAutoSkip = async () => {
   try {
     const yesterday = _getYesterdayStr();
-    const habits    = await getHabitsForAutoSkip(); // active, not paused
+    const habits    = await getHabitsForAutoSkip(); // active + not paused
+    let skippedCount = 0;
+    const skippedNames = [];
 
     for (const habit of habits) {
-      // Not scheduled for yesterday — skip
       if (!_wasScheduledOn(habit, yesterday)) continue;
-
       // WFO-skip habits handled by wfoService — don't double-insert
       if (habit.is_wfo_skip === 1) continue;
-
-      // Already has a checkin for yesterday — don't touch
+      // Already has a checkin — don't touch
       const existing = await getCheckinForDate(habit.id, yesterday);
       if (existing) continue;
-
-      // Nothing logged — auto_skip + deduct 3 XP
+      // Nothing logged — auto_skip + deduct XP
       await insertAutoSkipCheckin(habit.id, yesterday);
       await deductAutoSkipXP(habit.id, yesterday);
+      skippedCount++;
+      skippedNames.push(habit.name);
     }
 
-    console.log('✅ Phase E: auto-skip scan complete for', yesterday);
+    if (skippedCount > 0) {
+      console.log(`⚠️ Phase E: auto-skipped ${skippedCount} habit(s) for ${yesterday}`);
+    }
+
+    return { skippedCount, skippedNames };
   } catch (e) {
-    // Never crash the app over this
     console.warn('runAutoSkip error:', e.message);
+    return { skippedCount: 0, skippedNames: [] };
   }
 };
 
 // ── Inner component (has access to ThemeProvider) ─────────────────────
 
-const AppInner = () => {
+const AppInner = ({ autoSkipResult }) => {
   const { colors, isDark, toggleTheme } = useTheme();
   const [phase,  setPhase]  = useState(PHASE.SPLASH);
   const navRef               = useRef(null);
   const responseListenerRef  = useRef(null);
+  const toastShownRef        = useRef(false);
 
-  // Keep static Colors in sync for non-React files
   useEffect(() => {
     updateStaticColors(colors);
   }, [colors]);
@@ -124,6 +144,24 @@ const AppInner = () => {
 
   const _handleIdentityDismiss = () => {
     setPhase(PHASE.APP);
+
+    // Show auto-skip accountability toast AFTER entering the app
+    // Only once per session, only if there were actual auto-skips
+    if (!toastShownRef.current && autoSkipResult?.skippedCount > 0) {
+      toastShownRef.current = true;
+      const { skippedCount, skippedNames } = autoSkipResult;
+      const xpLost = skippedCount * 3;
+      const habitList = skippedNames.slice(0, 3).join(', ') +
+        (skippedNames.length > 3 ? ` +${skippedNames.length - 3} more` : '');
+
+      setTimeout(() => {
+        Alert.alert(
+          '⚠️ Yesterday — Not Logged',
+          `${skippedCount} habit${skippedCount > 1 ? 's' : ''} had no log yesterday:\n\n${habitList}\n\n-${xpLost} XP deducted.\n\nLog your habits daily. Krishna watches.`,
+          [{ text: 'Acknowledged', style: 'default' }]
+        );
+      }, 800); // slight delay so home screen loads first
+    }
   };
 
   const navTheme = {
@@ -163,10 +201,11 @@ const AppInner = () => {
   );
 };
 
-// ── Root — reads saved theme, runs auto-skip, then renders ────────────
+// ── Root — init DB, run auto-skip, load theme, then render ────────────
 
 export default function App() {
-  const [initialTheme, setInitialTheme] = useState(null);
+  const [initialTheme,    setInitialTheme]    = useState(null);
+  const [autoSkipResult,  setAutoSkipResult]  = useState(null);
 
   useEffect(() => {
     _initApp();
@@ -174,18 +213,20 @@ export default function App() {
 
   const _initApp = async () => {
     try {
-      // 1. Init DB (migrations run inside, including Phase E is_paused column)
+      // 1. Init DB — runs all migrations including Phase E is_paused + checkins rebuild
       await getDatabase();
 
-      // 2. Phase E: Auto-skip scan — mark yesterday's unlogged habits
-      //    Runs after DB is ready, before any screen renders
-      await runAutoSkip();
+      // 2. Phase E: Auto-skip scan for yesterday
+      //    Runs after DB ready, result shown after identity screen dismisses
+      const result = await runAutoSkip();
+      setAutoSkipResult(result);
 
       // 3. Load saved theme
       const saved = await getSetting('app_theme');
       setInitialTheme(saved || 'dark');
     } catch {
       setInitialTheme('dark');
+      setAutoSkipResult({ skippedCount: 0, skippedNames: [] });
     }
   };
 
@@ -196,7 +237,7 @@ export default function App() {
     <ErrorBoundary>
       <SafeAreaProvider>
         <ThemeProvider initialTheme={initialTheme}>
-          <AppInner />
+          <AppInner autoSkipResult={autoSkipResult} />
         </ThemeProvider>
       </SafeAreaProvider>
     </ErrorBoundary>

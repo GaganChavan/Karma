@@ -1,14 +1,11 @@
-// ─── KARMA APP — WHATSAPP SERVICE ────────────────────────────────────
-// Opens WhatsApp with pre-formatted daily/weekly report.
-// No API. No approval. Uses React Native Linking.
-// User taps send — to Saved Messages or accountability partner.
+// ─── KARMA APP — WHATSAPP SERVICE (PHASE E) ──────────────────────────
+// Phase E: handles auto_skipped status in daily report
+// auto_skipped = ⚠️ Not logged (shown as accountability nudge)
 
 import { Linking, Alert } from 'react-native';
 import { getDailyHomeShloka } from '../constants/shlokas';
 
 // ── Format helpers ────────────────────────────────────────────────────
-
-const _pad = (n) => String(n).padStart(2, '0');
 
 const _todayStr = () => {
   const d = new Date();
@@ -25,53 +22,50 @@ const _weekRange = () => {
   return `${start.getDate()}/${start.getMonth()+1} – ${end.getDate()}/${end.getMonth()+1}`;
 };
 
-const _encode = (text) =>
-  encodeURIComponent(text);
+const _encode = (text) => encodeURIComponent(text);
 
 // ── DAILY REPORT ─────────────────────────────────────────────────────
 
 export const sendDailyWhatsApp = async (reportData) => {
   const {
-    alterEgo     = 'Neel',
-    habits       = [],
-    checkins     = {},
-    streaks      = {},
-    totalXP      = 0,
-    todayXP      = 0,
-    karmaScore   = 0,
-    levelInfo    = null,
+    alterEgo  = 'Neel',
+    habits    = [],
+    checkins  = {},
+    streaks   = {},
+    totalXP   = 0,
+    todayXP   = 0,
+    karmaScore= 0,
+    levelInfo = null,
   } = reportData;
 
-  const shloka = getDailyHomeShloka();
+  const shloka      = getDailyHomeShloka();
+  const buildHabits = habits.filter(h => h.type === 'build');
+  const breakHabits = habits.filter(h => h.type === 'break');
 
-  const buildHabits  = habits.filter(h => h.type === 'build');
-  const breakHabits  = habits.filter(h => h.type === 'break');
-  const doneCount    = habits.filter(h => {
+  const doneCount = habits.filter(h => {
     const c = checkins[h.id];
     return c?.status === 'done' || c?.status === 'resisted';
   }).length;
 
   // Build habits section
+  // Phase E: added auto_skipped case — shown as ⚠️ accountability nudge
   const buildLines = buildHabits.map(h => {
     const c      = checkins[h.id];
     const streak = streaks[h.id]?.current || 0;
-    const done   = c?.status === 'done';
-    const missed = c?.status === 'missed';
-    const skip   = c?.status === 'skipped';
-    if (done)   return `✅ ${h.name} — ${streak}d streak 🪔`;
-    if (missed) return `❌ ${h.name} — missed`;
-    if (skip)   return `⏭ ${h.name} — skipped`;
+    if (c?.status === 'done')         return `✅ ${h.name} — ${streak}d streak 🪔`;
+    if (c?.status === 'missed')       return `❌ ${h.name} — missed`;
+    if (c?.status === 'skipped')      return `⏭ ${h.name} — skipped`;
+    if (c?.status === 'auto_skipped') return `⚠️ ${h.name} — not logged (-3 XP)`;
     return `⬜ ${h.name} — not checked`;
   }).join('\n');
 
   // Break habits section
   const breakLines = breakHabits.map(h => {
-    const c       = checkins[h.id];
-    const streak  = streaks[h.id]?.current || 0;
-    const resisted = c?.status === 'resisted';
-    const slipped  = c?.status === 'slip';
-    if (resisted) return `✊ ${h.name} — ${streak}d clean`;
-    if (slipped)  return `😔 ${h.name} — slipped (${c?.slip_count || 1}×)`;
+    const c      = checkins[h.id];
+    const streak = streaks[h.id]?.current || 0;
+    if (c?.status === 'resisted')     return `✊ ${h.name} — ${streak}d clean`;
+    if (c?.status === 'slip')         return `😔 ${h.name} — slipped (${c?.slip_count || 1}×)`;
+    if (c?.status === 'auto_skipped') return `⚠️ ${h.name} — not logged (-3 XP)`;
     return `⬜ ${h.name} — not checked`;
   }).join('\n');
 
@@ -96,7 +90,7 @@ _${shloka.roman}_
 — ${shloka.reference}
 
 The battlefield was today.
-Neel showed up.`;
+${alterEgo} showed up.`;
 
   await _openWhatsApp(message);
 };
@@ -105,18 +99,18 @@ Neel showed up.`;
 
 export const sendWeeklyWhatsApp = async (weekData) => {
   const {
-    alterEgo        = 'Neel',
-    weeklyRate      = 0,
-    bestHabit       = null,
-    needsWork       = null,
-    topStreaks      = [],
-    totalXP         = 0,
-    weekXP          = 0,
-    karmaScore      = 0,
-    karmaScorePrev  = 0,
-    topTrigger      = null,
-    levelInfo       = null,
-    weekNumber      = 0,
+    alterEgo       = 'Neel',
+    weeklyRate     = 0,
+    bestHabit      = null,
+    needsWork      = null,
+    topStreaks     = [],
+    totalXP        = 0,
+    weekXP         = 0,
+    karmaScore     = 0,
+    karmaScorePrev = 0,
+    topTrigger     = null,
+    levelInfo      = null,
+    weekNumber     = 0,
   } = weekData;
 
   const streakLines = topStreaks.slice(0, 3).map(
@@ -147,7 +141,7 @@ _वैराग्येण च गृह्यते_
 the mind is mastered"
 — Bhagavad Gita 6.35
 
-The reins held this week, Neel.
+The reins held this week, ${alterEgo}.
 The horses are learning.`;
 
   await _openWhatsApp(message);
@@ -157,15 +151,13 @@ The horses are learning.`;
 
 const _openWhatsApp = async (message) => {
   try {
-    const url = `whatsapp://send?text=${_encode(message)}`;
-    const canOpen = await Linking.canOpenURL(url);
-
+    const url       = `whatsapp://send?text=${_encode(message)}`;
+    const canOpen   = await Linking.canOpenURL(url);
     if (canOpen) {
       await Linking.openURL(url);
     } else {
-      // Fallback — try WhatsApp web
-      const webUrl = `https://wa.me/?text=${_encode(message)}`;
-      const canOpenWeb = await Linking.canOpenURL(webUrl);
+      const webUrl    = `https://wa.me/?text=${_encode(message)}`;
+      const canOpenWeb= await Linking.canOpenURL(webUrl);
       if (canOpenWeb) {
         await Linking.openURL(webUrl);
       } else {
@@ -182,13 +174,11 @@ const _openWhatsApp = async (message) => {
   }
 };
 
-// ── Schedule notification to trigger WhatsApp share ──────────────────
-// Called from App.js on startup — schedules daily 9 PM nudge
+// ── Prompt helpers ────────────────────────────────────────────────────
 
-export const WHATSAPP_DAILY_HOUR   = 21; // 9 PM
-export const WHATSAPP_WEEKLY_HOUR  = 20; // 8 PM Sunday
+export const WHATSAPP_DAILY_HOUR  = 21; // 9 PM
+export const WHATSAPP_WEEKLY_HOUR = 20; // 8 PM Sunday
 
-// Simple check — should daily report be shown now?
 export const shouldShowDailyPrompt = () => {
   const h = new Date().getHours();
   return h >= 20 && h <= 22;

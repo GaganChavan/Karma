@@ -1,6 +1,8 @@
-// ─── KARMA APP — DATABASE (PHASE E) ────────────────────────────
-// Phase E adds: is_paused column for habit pause feature
-// All existing data, XP, streaks, checkins — untouched.
+// ─── KARMA APP — DATABASE (PHASE E) ────────────────────────────────────
+// Phase E adds:
+// - is_paused column on habits (pause feature)
+// - checkins table rebuilt to allow 'auto_skipped' status
+//   (old CHECK constraint only had done/missed/slip/resisted/skipped)
 
 import * as SQLite from 'expo-sqlite';
 
@@ -152,18 +154,17 @@ const _runMigrations = async (db) => {
       }
     };
 
-    // Phase B/C migrations
-    await addHabitCol('time_of_day',            "TEXT NOT NULL DEFAULT 'anytime'");
-    await addHabitCol('is_quantifiable',         "INTEGER NOT NULL DEFAULT 0");
-    await addHabitCol('daily_target',            "REAL NOT NULL DEFAULT 1");
-    await addHabitCol('unit',                    "TEXT NOT NULL DEFAULT ''");
-    await addHabitCol('frequency_type',          "TEXT NOT NULL DEFAULT 'daily'");
-    await addHabitCol('weekly_target',           "INTEGER NOT NULL DEFAULT 7");
-    await addHabitCol('is_wfo_skip',             "INTEGER NOT NULL DEFAULT 0");
+    // Phase B/C/D migrations
+    await addHabitCol('time_of_day',   "TEXT NOT NULL DEFAULT 'anytime'");
+    await addHabitCol('is_quantifiable',"INTEGER NOT NULL DEFAULT 0");
+    await addHabitCol('daily_target',  "REAL NOT NULL DEFAULT 1");
+    await addHabitCol('unit',          "TEXT NOT NULL DEFAULT ''");
+    await addHabitCol('frequency_type',"TEXT NOT NULL DEFAULT 'daily'");
+    await addHabitCol('weekly_target', "INTEGER NOT NULL DEFAULT 7");
+    await addHabitCol('is_wfo_skip',   "INTEGER NOT NULL DEFAULT 0");
 
-    // Phase E migration — is_paused
-    // Safe: existing habits all get 0 (fully active, no change to behaviour)
-    await addHabitCol('is_paused',               "INTEGER NOT NULL DEFAULT 0");
+    // Phase E: Pause feature
+    await addHabitCol('is_paused',     "INTEGER NOT NULL DEFAULT 0");
 
     // Checkins — add value column if missing
     const cCols = (await db.getAllAsync("PRAGMA table_info(checkins)")).map(c => c.name);
@@ -172,29 +173,65 @@ const _runMigrations = async (db) => {
       console.log('✅ Migration: checkins.value');
     }
 
-    // Phase E — update checkins CHECK constraint to allow auto_skipped
-    // SQLite doesn't support ALTER CONSTRAINT, but INSERT will work because
-    // the CHECK is only enforced on new rows. Existing rows are safe.
-    // The CREATE TABLE above already has auto_skipped in the CHECK for new installs.
-    // For existing installs, SQLite won't retroactively enforce the old CHECK —
-    // INSERT OR IGNORE with status='auto_skipped' will succeed silently.
+    // Phase E: Rebuild checkins table to allow 'auto_skipped' status.
+    // SQLite cannot ALTER a CHECK constraint, so we rename → create new → copy → drop old.
+    // ALL existing data is fully preserved. Safe to run multiple times (guarded by check).
+    try {
+      const tableInfo = await db.getFirstAsync(
+        `SELECT sql FROM sqlite_master WHERE type='table' AND name='checkins'`
+      );
+      const needsRebuild = tableInfo?.sql && !tableInfo.sql.includes('auto_skipped');
+
+      if (needsRebuild) {
+        console.log('🔧 Rebuilding checkins table for auto_skipped support...');
+        // Disable foreign keys temporarily for the rebuild
+        await db.execAsync('PRAGMA foreign_keys = OFF;');
+        await db.execAsync(`
+          CREATE TABLE checkins_new (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            habit_id   INTEGER NOT NULL,
+            date       TEXT NOT NULL,
+            status     TEXT NOT NULL CHECK(status IN ('done','missed','slip','resisted','skipped','auto_skipped')),
+            note       TEXT,
+            slip_count INTEGER NOT NULL DEFAULT 0,
+            value      REAL DEFAULT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE,
+            UNIQUE(habit_id, date)
+          );
+          INSERT INTO checkins_new
+            SELECT id, habit_id, date, status, note, slip_count,
+                   CASE WHEN typeof(value)='real' OR typeof(value)='integer'
+                        THEN value ELSE NULL END,
+                   created_at
+            FROM checkins;
+          DROP TABLE checkins;
+          ALTER TABLE checkins_new RENAME TO checkins;
+          CREATE INDEX IF NOT EXISTS idx_checkins_habit_date ON checkins(habit_id, date);
+          CREATE INDEX IF NOT EXISTS idx_checkins_date ON checkins(date);
+        `);
+        await db.execAsync('PRAGMA foreign_keys = ON;');
+        console.log('✅ checkins table rebuilt — auto_skipped now supported');
+      }
+    } catch (rebuildErr) {
+      // Re-enable foreign keys if rebuild failed mid-way
+      try { await db.execAsync('PRAGMA foreign_keys = ON;'); } catch {}
+      console.warn('checkins rebuild warning:', rebuildErr.message);
+    }
 
   } catch (err) {
     console.warn('Migration warning:', err.message);
   }
 };
 
-// ── XP BACKFILL ────────────────────────────────────────────────────
-// Runs ONCE on first launch after the XP fix build.
-// Awards +10 XP for every past 'done' checkin and +15 for 'resisted'
-// that has no corresponding xp_log entry.
+// ── XP BACKFILL ────────────────────────────────────────────────────────
 const _backfillXP = async (db) => {
   try {
     const done = await db.getFirstAsync(
       "SELECT value FROM settings WHERE key = 'xp_backfill_done'"
     );
 
-    // Migrate alter_ego: Neel → Gagan
+    // Migrate alter_ego if still Neel
     try {
       const egoRow = await db.getFirstAsync("SELECT value FROM settings WHERE key='alter_ego'");
       if (egoRow?.value === 'Neel') {
@@ -231,15 +268,14 @@ const _backfillXP = async (db) => {
           [c.habit_id, xp, `Backfill: ${c.name || 'habit'} — ${c.status}`, c.date]
         );
       }
-
       const currentXPRow = await db.getFirstAsync("SELECT value FROM settings WHERE key = 'total_xp'");
-      const currentXP = parseInt(currentXPRow?.value || '0');
-      const newXP = currentXP + totalXP;
+      const currentXP    = parseInt(currentXPRow?.value || '0');
+      const newXP        = currentXP + totalXP;
       await db.runAsync(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('total_xp', ?)",
         [String(newXP)]
       );
-      console.log(`⚡ XP backfill done: +${totalXP} XP for ${unbilledCheckins.length} past checkins → total: ${newXP}`);
+      console.log(`⚡ XP backfill done: +${totalXP} XP → total: ${newXP}`);
     }
 
     await db.runAsync(
@@ -266,7 +302,6 @@ const _seedDefaultSettings = async (db) => {
     ['streak_freeze_count', '0'],
     ['splash_image_uri',    ''],
     ['splash_image_type',   'default'],
-    // Phase D
     ['wfo_mode',            'false'],
     ['wfo_city',            'Bangalore'],
     ['home_city',           'Hassan'],
@@ -274,10 +309,8 @@ const _seedDefaultSettings = async (db) => {
     ['wfo_start_date',      ''],
     ['wfo_end_date',        ''],
     ['recovery_mode_shown', ''],
-    // Backfill guard
     ['xp_backfill_done',    'false'],
   ];
-
   for (const [key, value] of defaults) {
     await db.runAsync(
       'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)',

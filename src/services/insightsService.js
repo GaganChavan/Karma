@@ -1,6 +1,8 @@
 // ─── KARMA APP — INSIGHTS SERVICE (PHASE E) ──────────────────────────
-// Phase E: habits query now excludes paused habits (AND is_paused = 0)
-// Paused habits have stale/sparse data and must not skew analysis.
+// Phase E changes:
+// - habits query excludes paused habits (AND is_paused = 0)
+// - NEW: chronic auto-skip insight — if a habit keeps getting
+//   auto_skipped, Krishna calls it out directly
 
 import { getDatabase } from '../database/database';
 
@@ -35,6 +37,10 @@ export const generateInsights = async () => {
         const breakInsights = await _analyzeBreakHabit(habit, checkins, db, fromDate);
         insights.push(...breakInsights);
       }
+
+      // Phase E: Chronic auto-skip detection (applies to both build and break)
+      const autoSkipInsight = _detectChronicAutoSkip(habit, checkins);
+      if (autoSkipInsight) insights.push(autoSkipInsight);
     }
 
     const overallInsights = await _analyzeOverall(habits, db, fromDate);
@@ -47,13 +53,41 @@ export const generateInsights = async () => {
   }
 };
 
+// Phase E: Detect habits that keep getting auto_skipped (not logged)
+// Fires if 5+ auto_skips in last 14 days — Krishna calls it out directly
+const _detectChronicAutoSkip = (habit, checkins) => {
+  const fourteenDaysAgo = new Date();
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+  const cutoff = fourteenDaysAgo.toISOString().split('T')[0];
+
+  const recentAutoSkips = checkins.filter(
+    c => c.status === 'auto_skipped' && c.date >= cutoff
+  ).length;
+
+  if (recentAutoSkips < 5) return null;
+
+  return {
+    type:      'chronic_auto_skip',
+    habitId:   habit.id,
+    habitName: habit.name,
+    icon:      '⚠️',
+    color:     '#FF9F0A',
+    title:     `"${habit.name}" — ${recentAutoSkips} days unlogged`,
+    detail:    `You haven't logged this habit ${recentAutoSkips} times in 2 weeks. Either recommit — open the app, check in daily — or pause this habit until you're ready. Krishna doesn't track what isn't fought.`,
+    priority:  11, // Higher than trigger patterns — it's the most actionable signal
+  };
+};
+
 const _analyzeBuildHabit = async (habit, checkins, db, fromDate) => {
   const insights = [];
   const total = checkins.length;
   const done  = checkins.filter(c => c.status === 'done').length;
   const rate  = total > 0 ? Math.round((done / total) * 100) : 0;
 
-  const dayMap = { 0: 'Sunday', 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday' };
+  const dayMap = {
+    0: 'Sunday', 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday',
+    4: 'Thursday', 5: 'Friday', 6: 'Saturday',
+  };
   const dayStats = {};
 
   checkins.forEach(c => {
@@ -63,52 +97,49 @@ const _analyzeBuildHabit = async (habit, checkins, db, fromDate) => {
     if (c.status === 'done') dayStats[day].done++;
   });
 
-  let weakestDay = null;
-  let lowestRate = 100;
+  let weakestDay  = null;
+  let lowestRate  = 100;
   Object.entries(dayStats).forEach(([day, stats]) => {
     if (stats.total >= 3) {
       const dayRate = (stats.done / stats.total) * 100;
-      if (dayRate < lowestRate) {
-        lowestRate = dayRate;
-        weakestDay = parseInt(day);
-      }
+      if (dayRate < lowestRate) { lowestRate = dayRate; weakestDay = parseInt(day); }
     }
   });
 
   if (weakestDay !== null && lowestRate < 60) {
     insights.push({
-      type: 'weak_day',
-      habitId: habit.id,
+      type:      'weak_day',
+      habitId:   habit.id,
       habitName: habit.name,
-      icon: habit.icon,
-      color: habit.color || '#F5A623',
-      title: `${dayMap[weakestDay]} is your weak day`,
-      detail: `You complete "${habit.name}" only ${Math.round(lowestRate)}% of ${dayMap[weakestDay]}s. Plan something specific for this day.`,
-      priority: 8,
+      icon:      habit.icon,
+      color:     habit.color || '#F5A623',
+      title:     `${dayMap[weakestDay]} is your weak day`,
+      detail:    `You complete "${habit.name}" only ${Math.round(lowestRate)}% of ${dayMap[weakestDay]}s. Plan something specific for this day.`,
+      priority:  8,
     });
   }
 
   if (rate >= 80) {
     insights.push({
-      type: 'momentum',
-      habitId: habit.id,
+      type:      'momentum',
+      habitId:   habit.id,
       habitName: habit.name,
-      icon: habit.icon,
-      color: '#30D158',
-      title: `Strong momentum — ${rate}% completion`,
-      detail: `"${habit.name}" is working. You've completed it ${done}/${total} days. The rein is firm.`,
-      priority: 5,
+      icon:      habit.icon,
+      color:     '#30D158',
+      title:     `Strong momentum — ${rate}% completion`,
+      detail:    `"${habit.name}" is working. You've completed it ${done}/${total} days. The rein is firm.`,
+      priority:  5,
     });
   } else if (rate < 40 && total >= 14) {
     insights.push({
-      type: 'struggling',
-      habitId: habit.id,
+      type:      'struggling',
+      habitId:   habit.id,
       habitName: habit.name,
-      icon: habit.icon,
-      color: '#FF453A',
-      title: `"${habit.name}" needs attention`,
-      detail: `Only ${rate}% completion over ${total} days. Consider: is this the right time of day? Is the habit too ambitious?`,
-      priority: 9,
+      icon:      habit.icon,
+      color:     '#FF453A',
+      title:     `"${habit.name}" needs attention`,
+      detail:    `Only ${rate}% completion over ${total} days. Consider: is this the right time of day? Is the habit too ambitious?`,
+      priority:  9,
     });
   }
 
@@ -138,14 +169,14 @@ const _analyzeBreakHabit = async (habit, checkins, db, fromDate) => {
       hunger:    'Hunger',
     };
     insights.push({
-      type: 'trigger_pattern',
-      habitId: habit.id,
+      type:      'trigger_pattern',
+      habitId:   habit.id,
       habitName: habit.name,
-      icon: '🧠',
-      color: '#BF5AF2',
-      title: `${triggerLabels[topTrigger] || topTrigger} triggers "${habit.name}"`,
-      detail: `Your battlefield intelligence: ${triggers[0].count} of your slips happen during ${triggerLabels[topTrigger] || topTrigger}. Prepare for this specific state.`,
-      priority: 10,
+      icon:      '🧠',
+      color:     '#BF5AF2',
+      title:     `${triggerLabels[topTrigger] || topTrigger} triggers "${habit.name}"`,
+      detail:    `Your battlefield intelligence: ${triggers[0].count} of your slips happen during ${triggerLabels[topTrigger] || topTrigger}. Prepare for this specific state.`,
+      priority:  10,
     });
   }
 
@@ -154,14 +185,14 @@ const _analyzeBreakHabit = async (habit, checkins, db, fromDate) => {
 
   if (resisted > 0 && slips === 0) {
     insights.push({
-      type: 'clean',
-      habitId: habit.id,
+      type:      'clean',
+      habitId:   habit.id,
       habitName: habit.name,
-      icon: habit.icon,
-      color: '#30D158',
-      title: `Zero slips — the rein holds perfectly`,
-      detail: `"${habit.name}" — ${resisted} days of resistance. The horse is learning. Dhruv would approve.`,
-      priority: 7,
+      icon:      habit.icon,
+      color:     '#30D158',
+      title:     'Zero slips — the rein holds perfectly',
+      detail:    `"${habit.name}" — ${resisted} days of resistance. The horse is learning. Dhruv would approve.`,
+      priority:  7,
     });
   }
 
@@ -171,8 +202,8 @@ const _analyzeBreakHabit = async (habit, checkins, db, fromDate) => {
 const _analyzeOverall = async (habits, db, fromDate) => {
   const insights = [];
 
-  let bestHabit  = null;
-  let bestRate   = 0;
+  let bestHabit = null;
+  let bestRate  = 0;
 
   for (const h of habits.filter(h => h.type === 'build')) {
     const stats = await db.getFirstAsync(
@@ -188,13 +219,13 @@ const _analyzeOverall = async (habits, db, fromDate) => {
 
   if (bestHabit && Math.round(bestRate) >= 70) {
     insights.push({
-      type: 'best_habit',
-      icon: bestHabit.icon,
-      color: bestHabit.color,
+      type:      'best_habit',
+      icon:      bestHabit.icon,
+      color:     bestHabit.color,
       habitName: bestHabit.name,
-      title: `"${bestHabit.name}" is your strongest habit`,
-      detail: `${Math.round(bestRate)}% completion over 30 days. This is your anchor. Build on it.`,
-      priority: 6,
+      title:     `"${bestHabit.name}" is your strongest habit`,
+      detail:    `${Math.round(bestRate)}% completion over 30 days. This is your anchor. Build on it.`,
+      priority:  6,
     });
   }
 
@@ -217,10 +248,10 @@ const _analyzeOverall = async (habits, db, fromDate) => {
       const lowAvg  = lowEnergy.reduce((s, d)  => s + d.habits_done, 0) / lowEnergy.length;
       if (highAvg > lowAvg * 1.3) {
         insights.push({
-          type: 'energy_correlation',
-          icon: '⚡',
-          color: '#F5A623',
-          title: 'Energy drives your discipline',
+          type:   'energy_correlation',
+          icon:   '⚡',
+          color:  '#F5A623',
+          title:  'Energy drives your discipline',
           detail: `On high-energy mornings you complete ${Math.round(highAvg)} habits vs ${Math.round(lowAvg)} on low-energy days. Protect your sleep — it's not rest, it's strategy.`,
           priority: 7,
         });
