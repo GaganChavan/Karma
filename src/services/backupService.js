@@ -93,7 +93,7 @@ const _restoreData = async (data) => {
          h.frequency_type||'daily', h.weekly_target||7, h.is_wfo_skip||0,
          h.reminder_time||null, h.reminder_type||'none', h.goal_days||0,
          h.punishment_sensitivity||'balanced', h.streak_freeze_count||0,
-         h.is_active??1, h.sort_order||0,
+         h.is_active??1, h.is_paused||0, h.sort_order||0,
          h.created_at||new Date().toISOString(), h.updated_at||new Date().toISOString()]
       );
     }
@@ -133,6 +133,11 @@ export const clearAllData = async () => {
     DELETE FROM checkins; DELETE FROM habits; DELETE FROM milestones; DELETE FROM xp_log;
     UPDATE settings SET value='0' WHERE key='total_xp';
     UPDATE settings SET value='' WHERE key='last_perfect_day';
+    UPDATE settings SET value='0' WHERE key='streak_freeze_count';
+    UPDATE settings SET value='' WHERE key='last_freeze_award';
+    UPDATE settings SET value='false' WHERE key='wfo_mode';
+    UPDATE settings SET value='' WHERE key='wfo_start_date';
+    UPDATE settings SET value='' WHERE key='wfo_end_date';
   `);
 };
 
