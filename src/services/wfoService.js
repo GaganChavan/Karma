@@ -1,16 +1,13 @@
-// ─── KARMA APP — WFO MODE SERVICE (PHASE D) ─────────────────────────
-// Handles the Hassan vs Bangalore context switch.
-// FIX #9: Streak recovery offered from 2+ lost days (not 21)
-//   Scaled recovery targets:
-//     2–6 days lost  → 3 days to recover
-//     7–20 days lost → 5 days to recover
-//     21–65 days lost→ 7 days to recover
-//     66+ days lost  → 14 days to recover
+// ─── KARMA APP — WFO MODE SERVICE (PHASE E) ─────────────────────────
+// Phase E: getBeforeNowData now excludes paused habits (AND is_paused = 0)
+// getAllHabits() already filters paused — enableWFOMode and
+// applyWFOSkipsForToday are automatically safe.
 
 import { getDatabase } from '../database/database';
 import { getAllHabits, getSetting, setSetting } from '../database/habitService';
 
 // ── WFO MODE ──────────────────────────────────────────────────────────
+
 export const isWFOMode = async () => {
   try {
     const val = await getSetting('wfo_mode');
@@ -23,6 +20,7 @@ export const enableWFOMode = async () => {
     const db = await getDatabase();
     await setSetting('wfo_mode', 'true');
     await setSetting('wfo_start_date', new Date().toISOString().split('T')[0]);
+    // getAllHabits() already excludes paused habits — safe
     const habits = await getAllHabits();
     const today = new Date().toISOString().split('T')[0];
     for (const h of habits) {
@@ -59,11 +57,12 @@ export const getWFOStats = async () => {
 
     const today = new Date().toISOString().split('T')[0];
     const start = new Date(startDate);
-    const now = new Date(today);
+    const now   = new Date(today);
     const wfoDays = Math.floor((now - start) / 86400000) + 1;
 
     const nnRaw = await getSetting('wfo_non_negotiables');
     const nnIds = nnRaw ? nnRaw.split(',').filter(Boolean).map(Number) : [];
+
     let nnRate = 0;
     if (nnIds.length > 0) {
       const nnDone = await db.getFirstAsync(
@@ -74,6 +73,7 @@ export const getWFOStats = async () => {
       const nnTotal = nnIds.length * wfoDays;
       nnRate = nnTotal > 0 ? Math.round(((nnDone?.count || 0) / nnTotal) * 100) : 0;
     }
+
     return { wfoDays, startDate, nnIds, nnRate };
   } catch { return null; }
 };
@@ -95,6 +95,7 @@ export const applyWFOSkipsForToday = async () => {
     const wfo = await isWFOMode();
     if (!wfo) return;
     const db = await getDatabase();
+    // getAllHabits() already excludes paused — safe
     const habits = await getAllHabits();
     const today = new Date().toISOString().split('T')[0];
     for (const h of habits) {
@@ -113,17 +114,7 @@ export const applyWFOSkipsForToday = async () => {
 };
 
 // ── STREAK RECOVERY ───────────────────────────────────────────────────
-// FIX #9: Offer recovery from just 2 lost days, with scaled targets.
-// lostStreak = the streak that just broke.
-//
-// Why day 2+? Even a 2-day streak breaking is demoralizing.
-// Give the user a recovery path immediately so they don't quit.
-//
-// Scaled targets (scaled to the pain of losing it):
-//   2–6 days lost  → 3 days recovery  (easy re-entry)
-//   7–20 days lost → 5 days recovery  (meaningful commitment)
-//   21–65 days lost→ 7 days recovery  (week-long effort)
-//   66+ days lost  → 14 days recovery (two-week redemption)
+
 const _getRecoveryTarget = (lostStreak) => {
   if (lostStreak < 7)  return 3;
   if (lostStreak < 21) return 5;
@@ -132,29 +123,22 @@ const _getRecoveryTarget = (lostStreak) => {
 };
 
 export const offerStreakRecovery = async (habitId, lostStreak) => {
-  // FIX: Changed threshold from 21 → 2 (any meaningful streak is worth recovering)
   if (lostStreak < 2) return null;
-
   try {
     const db = await getDatabase();
-    // Check if there's already an active recovery for this habit
     const existing = await db.getFirstAsync(
       "SELECT * FROM streak_recovery WHERE habit_id = ? AND status = 'active'",
       [habitId]
     );
     if (existing) return existing;
 
-    // FIX: Scaled target days based on how much was lost
     const targetDays = _getRecoveryTarget(lostStreak);
-
     const result = await db.runAsync(
       `INSERT INTO streak_recovery (habit_id, lost_streak, target_days, done_days, status)
        VALUES (?, ?, ?, 0, 'active')`,
       [habitId, lostStreak, targetDays]
     );
-
     console.log(`🔥 Recovery offered: habit ${habitId}, lost ${lostStreak}d → needs ${targetDays}d`);
-
     return {
       id: result.lastInsertRowId,
       habit_id: habitId,
@@ -211,6 +195,7 @@ export const getActiveRecovery = async (habitId) => {
 };
 
 // ── NEURAL REWIRING PROGRESS ──────────────────────────────────────────
+
 export const getNeuralProgress = async (habitId) => {
   try {
     const db = await getDatabase();
@@ -220,21 +205,22 @@ export const getNeuralProgress = async (habitId) => {
       [habitId]
     );
     const completedDays = result?.count || 0;
-    const TARGET_DAYS = 66;
-    const pct = Math.min(Math.round((completedDays / TARGET_DAYS) * 100), 100);
+    const TARGET_DAYS   = 66;
+    const pct  = Math.min(Math.round((completedDays / TARGET_DAYS) * 100), 100);
     const phase =
       completedDays === 0 ? 'not_started' :
-      completedDays < 21  ? 'forming' :
-      completedDays < 45  ? 'strengthening' :
-      completedDays < 66  ? 'deepening' : 'automatic';
+      completedDays < 21  ? 'forming'      :
+      completedDays < 45  ? 'strengthening':
+      completedDays < 66  ? 'deepening'    : 'automatic';
 
     const phaseInfo = {
-      not_started:   { label: 'Not Started',        color: '#8E8E93', desc: 'The neural road does not exist yet.' },
-      forming:       { label: 'Pathway Forming',    color: '#FF9F0A', desc: 'New neural connections being made. Willpower still required.' },
-      strengthening: { label: 'Strengthening',      color: '#F5A623', desc: 'The pathway widens. Habit begins to feel natural.' },
-      deepening:     { label: 'Deepening',          color: '#30D158', desc: 'Myelin sheath forming. Nearly automatic.' },
-      automatic:     { label: 'Automatic',          color: '#30D158', desc: 'The new road is built. The old one is fading.' },
+      not_started:   { label: 'Not Started',       color: '#8E8E93', desc: 'The neural road does not exist yet.' },
+      forming:       { label: 'Pathway Forming',   color: '#FF9F0A', desc: 'New neural connections being made. Willpower still required.' },
+      strengthening: { label: 'Strengthening',     color: '#F5A623', desc: 'The pathway widens. Habit begins to feel natural.' },
+      deepening:     { label: 'Deepening',         color: '#30D158', desc: 'Myelin sheath forming. Nearly automatic.' },
+      automatic:     { label: 'Automatic',         color: '#30D158', desc: 'The new road is built. The old one is fading.' },
     };
+
     return {
       completedDays, targetDays: TARGET_DAYS,
       percentage: pct, phase,
@@ -245,6 +231,8 @@ export const getNeuralProgress = async (habitId) => {
 };
 
 // ── BEFORE vs NOW ─────────────────────────────────────────────────────
+// Phase E: habits query excludes paused habits
+
 export const getBeforeNowData = async (alterEgo = 'Neel') => {
   try {
     const db = await getDatabase();
@@ -274,11 +262,15 @@ export const getBeforeNowData = async (alterEgo = 'Neel') => {
       "SELECT COUNT(*) as count FROM checkins WHERE status IN ('done','resisted')"
     );
 
-    const habits = await db.getAllAsync("SELECT id FROM habits WHERE is_active = 1") || [];
+    // Phase E: AND is_paused = 0
+    const habits = await db.getAllAsync(
+      "SELECT id FROM habits WHERE is_active = 1 AND is_paused = 0"
+    ) || [];
+
     const { getStreak } = require('../database/habitService');
     const allStreaks = await Promise.all(habits.map(h => getStreak(h.id)));
-    const bestCurrent = allStreaks.reduce((max, s) => s.current > max ? s.current : max, 0);
-    const bestEver    = allStreaks.reduce((max, s) => s.longest > max ? s.longest : max, 0);
+    const bestCurrent = allStreaks.reduce((max, s) => s.current > max  ? s.current  : max, 0);
+    const bestEver    = allStreaks.reduce((max, s) => s.longest > max  ? s.longest  : max, 0);
 
     const slips90 = await db.getFirstAsync(
       "SELECT COUNT(*) as count FROM checkins WHERE status = 'slip' AND date >= ?",
@@ -297,7 +289,7 @@ export const getBeforeNowData = async (alterEgo = 'Neel') => {
       totalDone: totalResult?.count || 0,
       bestCurrent, bestEver,
       totalSlips90: slips90?.count || 0,
-      recentSlips:  slips30?.count || 0,
+      recentSlips:  slips30?.count  || 0,
       totalXP: parseInt(xpTotal) || 0,
       alterEgo,
     };

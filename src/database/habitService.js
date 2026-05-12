@@ -1,42 +1,43 @@
-// ─── KARMA APP — HABIT SERVICE (PHASE D FINAL) ──────────────────────
-// FIXES:
-//   #1: getStreak — 'skipped' days no longer break the streak
-//       (skipped = valid excuse, streak protected like WFO skip)
-//   #2: createHabit — now saves ALL Phase C+D columns
-//       (time_of_day, is_quantifiable, daily_target, unit,
-//        frequency_type, weekly_target, is_wfo_skip)
-//   #3: checkIn — XP now capped once per day per habit
-//       (prevents toggle done→missed→done XP exploit)
-//   #4: habit starts from creation day, not next day
+// ─── KARMA APP — HABIT SERVICE (PHASE E) ────────────────────────────
+// Phase E changes:
+// - getAllHabits: excludes paused habits (is_paused = 0)
+// - awardXPForHabit: removed Math.max(0) floor — XP can go negative
+// - NEW: getPausedHabits, pauseHabit, resumeHabit
+// - NEW: getHabitsForAutoSkip, insertAutoSkipCheckin
 
 import { getDatabase } from './database';
 import { calculateCheckinXP } from '../services/gamificationService';
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
 const getTodayDate = () => new Date().toISOString().split('T')[0];
+
 const getDateString = (date) => {
   if (typeof date === 'string') return date.split('T')[0];
   return date.toISOString().split('T')[0];
 };
 
 // ── Validation ────────────────────────────────────────────────────────
+
 const validateHabitInput = (habit) => {
   if (!habit) throw new Error('Habit data is required');
   const name = habit.name?.trim() || '';
   if (name.length === 0) throw new Error("Habit name can't be empty, Neel");
-  if (name.length < 3)   throw new Error('Habit name must be at least 3 characters');
-  if (name.length > 50)  throw new Error('Habit name must be under 50 characters');
+  if (name.length < 3) throw new Error('Habit name must be at least 3 characters');
+  if (name.length > 50) throw new Error('Habit name must be under 50 characters');
   if (!['build','break'].includes(habit.type)) {
     throw new Error('Habit type must be build or break');
   }
 };
 
 // ── HABITS CRUD ───────────────────────────────────────────────────────
+
+// Phase E: Added AND is_paused = 0 — paused habits excluded from daily flow
 export const getAllHabits = async () => {
   try {
     const db = await getDatabase();
     return await db.getAllAsync(
-      `SELECT * FROM habits WHERE is_active = 1 ORDER BY sort_order ASC, created_at ASC`
+      `SELECT * FROM habits WHERE is_active = 1 AND is_paused = 0 ORDER BY sort_order ASC, created_at ASC`
     ) || [];
   } catch (error) {
     console.error('getAllHabits:', error.message);
@@ -58,7 +59,6 @@ export const getHabitById = async (id) => {
   }
 };
 
-// FIX #2 + #4: createHabit now saves ALL fields and starts from today
 export const createHabit = async (habit) => {
   validateHabitInput(habit);
   try {
@@ -68,13 +68,12 @@ export const createHabit = async (habit) => {
       [habit.name.trim()]
     );
     if (existing) {
-      throw new Error(`A habit named "${habit.name.trim()}" already exists, Neel`);
+      throw new Error(`A habit named "${habit.name.trim()}" already exists`);
     }
     const count = await db.getFirstAsync(
       'SELECT COUNT(*) as count FROM habits WHERE is_active = 1'
     );
-    const now = new Date().toISOString(); // FIX #4: starts from creation day
-
+    const now = new Date().toISOString();
     const result = await db.runAsync(
       `INSERT INTO habits (
         name, icon, color, type, frequency, days,
@@ -95,10 +94,10 @@ export const createHabit = async (habit) => {
         habit.days || '1,2,3,4,5,6,7',
         habit.time_of_day || 'anytime',
         habit.is_quantifiable ? 1 : 0,
-        parseFloat(habit.daily_target) || 1,   // NOT NULL DEFAULT 1 — never pass null
-        habit.unit || '',                        // NOT NULL DEFAULT '' — never pass null
+        parseFloat(habit.daily_target) || 1,
+        habit.unit || '',
         habit.frequency_type || 'daily',
-        parseInt(habit.weekly_target) || 7,     // NOT NULL DEFAULT 7 — never pass null
+        parseInt(habit.weekly_target) || 7,
         habit.is_wfo_skip ? 1 : 0,
         habit.reminder_time || null,
         habit.reminder_type || 'none',
@@ -129,7 +128,7 @@ export const updateHabit = async (id, updates) => {
   if (!id) throw new Error('Habit ID required to update');
   if (updates.name !== undefined) {
     const name = updates.name?.trim() || '';
-    if (name.length === 0) throw new Error("Habit name can't be empty, Neel");
+    if (name.length === 0) throw new Error("Habit name can't be empty");
     if (name.length < 3) throw new Error('Habit name must be at least 3 characters');
     if (name.length > 50) throw new Error('Habit name must be under 50 characters');
   }
@@ -200,7 +199,94 @@ export const reorderHabits = async (orderedIds) => {
   }
 };
 
+// ── PAUSE / RESUME (Phase E) ──────────────────────────────────────────
+
+// Get all paused habits — for HabitsScreen Paused section
+export const getPausedHabits = async () => {
+  try {
+    const db = await getDatabase();
+    return await db.getAllAsync(
+      `SELECT * FROM habits WHERE is_active = 1 AND is_paused = 1 ORDER BY name`
+    ) || [];
+  } catch (e) {
+    console.error('getPausedHabits error:', e.message);
+    return [];
+  }
+};
+
+// Pause a habit — removes from daily flow, freezes all progress
+export const pauseHabit = async (habitId) => {
+  try {
+    const db = await getDatabase();
+    await db.runAsync(
+      `UPDATE habits SET is_paused = 1, updated_at = datetime('now','localtime') WHERE id = ?`,
+      [habitId]
+    );
+    console.log(`⏸ Habit ${habitId} paused`);
+  } catch (e) {
+    throw new Error(`Couldn't pause habit: ${e.message}`);
+  }
+};
+
+// Resume a paused habit — returns to full daily tracking
+export const resumeHabit = async (habitId) => {
+  try {
+    const db = await getDatabase();
+    await db.runAsync(
+      `UPDATE habits SET is_paused = 0, updated_at = datetime('now','localtime') WHERE id = ?`,
+      [habitId]
+    );
+    console.log(`▶ Habit ${habitId} resumed`);
+  } catch (e) {
+    throw new Error(`Couldn't resume habit: ${e.message}`);
+  }
+};
+
+// ── AUTO-SKIP (Phase E) ───────────────────────────────────────────────
+
+// Returns all active non-paused habits eligible for auto-skip check
+export const getHabitsForAutoSkip = async () => {
+  try {
+    const db = await getDatabase();
+    return await db.getAllAsync(
+      `SELECT * FROM habits WHERE is_active = 1 AND is_paused = 0`
+    ) || [];
+  } catch (e) {
+    console.error('getHabitsForAutoSkip error:', e.message);
+    return [];
+  }
+};
+
+// Returns existing checkin for a habit on a given date (or null)
+export const getCheckinForDate = async (habitId, date) => {
+  try {
+    const db = await getDatabase();
+    return await db.getFirstAsync(
+      `SELECT * FROM checkins WHERE habit_id = ? AND date = ?`,
+      [habitId, date]
+    ) || null;
+  } catch (e) {
+    console.error('getCheckinForDate error:', e.message);
+    return null;
+  }
+};
+
+// Insert auto_skipped checkin — INSERT OR IGNORE never overwrites existing records
+export const insertAutoSkipCheckin = async (habitId, date) => {
+  try {
+    const db = await getDatabase();
+    await db.runAsync(
+      `INSERT OR IGNORE INTO checkins (habit_id, date, status, created_at)
+       VALUES (?, ?, 'auto_skipped', datetime('now','localtime'))`,
+      [habitId, date]
+    );
+  } catch (e) {
+    console.error('insertAutoSkipCheckin error:', e.message);
+  }
+};
+
 // ── CHECKINS ──────────────────────────────────────────────────────────
+
 export const getTodayCheckins = async () => {
   try {
     const db = await getDatabase();
@@ -225,10 +311,9 @@ export const getCheckinsForHabit = async (habitId, limit = 90) => {
   }
 };
 
-// FIX #3: checkIn — XP only awarded once per day per habit
 export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
   if (!habitId) throw new Error('Habit ID required for check-in');
-  const validStatuses = ['done','missed','slip','resisted','skipped'];
+  const validStatuses = ['done','missed','slip','resisted','skipped','auto_skipped'];
   if (!validStatuses.includes(status)) {
     throw new Error(`Invalid status "${status}"`);
   }
@@ -239,15 +324,12 @@ export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
     const db = await getDatabase();
     const today = getTodayDate();
 
-    // Read PREVIOUS status BEFORE we change it
     const existing = await db.getFirstAsync(
       'SELECT status FROM checkins WHERE habit_id = ? AND date = ?',
       [habitId, today]
     );
     const previousStatus = existing?.status || null;
 
-    // FIX #3: Check if XP was already awarded today for this habit
-    // XP is only awarded/reversed for first positive check-in of the day
     const xpAlreadyAwarded = await db.getFirstAsync(
       `SELECT id FROM xp_log
        WHERE habit_id = ? AND date(date) = ? AND xp > 0
@@ -255,7 +337,6 @@ export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
       [habitId, today]
     );
 
-    // Do the insert / update
     await db.runAsync(
       `INSERT INTO checkins (habit_id, date, status, note, slip_count)
        VALUES (?, ?, ?, ?, ?)
@@ -266,21 +347,18 @@ export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
       [habitId, today, status, note, slipCount]
     );
 
-    // XP change: only apply if not yet awarded today (prevents exploit)
     const xpChange = calculateCheckinXP(previousStatus, status);
     if (xpChange !== 0) {
-      // Allow deductions always (fair penalty) but cap positive awards to once/day
       const shouldApply = xpChange < 0 || !xpAlreadyAwarded;
       if (shouldApply) {
         const habitData = await db.getFirstAsync('SELECT name FROM habits WHERE id = ?', [habitId]);
         const habitName = habitData?.name || `Habit #${habitId}`;
         const reason = xpChange > 0 ? `${habitName} — ${status}` : `${habitName} — undone`;
-        // Pass habitId to xp_log so we can track per-habit daily XP
         await awardXPForHabit(habitId, xpChange, reason);
       }
     }
 
-    console.log(`✅ CheckIn: habit ${habitId} ${previousStatus || 'new'} → ${status} (XP: ${xpChange > 0 ? '+' : ''}${xpChange})`);
+    console.log(`✅ CheckIn: habit ${habitId} ${previousStatus || 'new'} → ${status}`);
   } catch (error) {
     if (
       error.message.includes('Invalid status') ||
@@ -293,14 +371,14 @@ export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
   }
 };
 
-// Helper: award XP and log habit_id for daily cap tracking
+// Phase E: Removed Math.max(0, ...) — XP can go negative
 const awardXPForHabit = async (habitId, amount, reason) => {
   if (!amount || amount === 0) return 0;
   try {
     const db = await getDatabase();
     const current = await getSetting('total_xp');
     const currentXP = parseInt(current || '0');
-    const newXP = Math.max(0, currentXP + amount);
+    const newXP = currentXP + amount; // No floor — can go negative
     await setSetting('total_xp', String(newXP));
     await db.runAsync(
       'INSERT INTO xp_log (habit_id, xp, reason, date) VALUES (?, ?, ?, datetime("now","localtime"))',
@@ -342,9 +420,7 @@ export const editPastCheckin = async (habitId, date, status, note = null) => {
 };
 
 // ── STREAKS ───────────────────────────────────────────────────────────
-// FIX #1: 'skipped' days no longer break the streak.
-// Skip = valid excuse (WFO, sick, rest day). Streak continues.
-// Missed or slip = streak breaks.
+
 export const getStreak = async (habitId) => {
   if (!habitId) return { current: 0, longest: 0 };
   try {
@@ -352,7 +428,6 @@ export const getStreak = async (habitId) => {
     const habit = await db.getFirstAsync('SELECT type, created_at FROM habits WHERE id = ?', [habitId]);
     if (!habit) return { current: 0, longest: 0 };
 
-    // Get ALL checkins for this habit, ordered newest first
     const rows = await db.getAllAsync(
       `SELECT date, status FROM checkins
        WHERE habit_id = ?
@@ -369,7 +444,6 @@ export const getStreak = async (habitId) => {
     const createdDate = new Date(habit.created_at);
     createdDate.setHours(0, 0, 0, 0);
 
-    // Walk backwards day by day from today
     let current = 0;
     let longest = 0;
     let tempStreak = 0;
@@ -382,26 +456,21 @@ export const getStreak = async (habitId) => {
       const dateStr = d.toISOString().split('T')[0];
       const status = statusMap[dateStr];
 
-      // Don't go before habit was created
       if (d < createdDate) break;
 
       if (status === 'done' || status === 'resisted') {
         tempStreak++;
         if (isCurrentStreak) current++;
-      } else if (status === 'skipped') {
-        // Skipped = streak protected, doesn't add to count, doesn't break it
-        // Just move to previous day
+      } else if (status === 'skipped' || status === 'auto_skipped') {
+        // skipped/auto_skipped = streak frozen, doesn't increment, doesn't break
       } else if (status === 'missed' || status === 'slip') {
-        // Streak broken
         if (isCurrentStreak) isCurrentStreak = false;
         if (tempStreak > longest) longest = tempStreak;
         tempStreak = 0;
       } else {
-        // No checkin entry for this date
         if (dateStr === today) {
-          // Today not yet logged — that's fine, don't break streak
+          // Today not yet logged — fine
         } else {
-          // Past day with no entry — streak is broken
           if (isCurrentStreak) isCurrentStreak = false;
           if (tempStreak > longest) longest = tempStreak;
           tempStreak = 0;
@@ -409,11 +478,10 @@ export const getStreak = async (habitId) => {
       }
 
       d.setDate(d.getDate() - 1);
-      if (tempStreak > 1000) break; // Safety cap
+      if (tempStreak > 1000) break;
     }
 
     if (tempStreak > longest) longest = tempStreak;
-
     return { current, longest };
   } catch (error) {
     console.warn('getStreak error:', error.message);
@@ -425,19 +493,14 @@ export const getWeeklyCompletionRate = async (habitId) => {
   if (!habitId) return { done: 0, daysElapsed: 0, rate: 0 };
   try {
     const db = await getDatabase();
-
-    // Monday-aligned: count from Monday of current week to today
     const today = new Date();
-    const dayOfWeek = today.getDay(); // 0=Sun
+    const dayOfWeek = today.getDay();
     const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     const monday = new Date(today);
     monday.setDate(today.getDate() - daysFromMonday);
     const fromDate = monday.toISOString().split('T')[0];
     const todayDate = today.toISOString().split('T')[0];
-
-    // Days elapsed in this week so far (Mon to today, inclusive)
     const daysElapsed = daysFromMonday + 1;
-
     const done = await db.getFirstAsync(
       `SELECT COUNT(*) as count FROM checkins
        WHERE habit_id = ? AND date >= ? AND date <= ? AND status IN ('done','resisted')`,
@@ -450,6 +513,7 @@ export const getWeeklyCompletionRate = async (habitId) => {
 };
 
 // ── PUNISHMENT ────────────────────────────────────────────────────────
+
 export const getPunishmentLevel = async (habitId) => {
   if (!habitId) return 0;
   try {
@@ -472,6 +536,7 @@ export const getPunishmentLevel = async (habitId) => {
 };
 
 // ── SETTINGS ──────────────────────────────────────────────────────────
+
 export const getSetting = async (key) => {
   if (!key) throw new Error('Setting key required');
   try {
@@ -510,6 +575,7 @@ export const getAllSettings = async () => {
 };
 
 // ── STATS ─────────────────────────────────────────────────────────────
+
 export const getTotalXP = async () => {
   try {
     const xp = await getSetting('total_xp');
@@ -522,7 +588,7 @@ export const getOverallStats = async () => {
     const db = await getDatabase();
     const today = getTodayDate();
     const [totalHabits, todayDone, totalXPVal] = await Promise.all([
-      db.getFirstAsync("SELECT COUNT(*) as count FROM habits WHERE is_active = 1"),
+      db.getFirstAsync("SELECT COUNT(*) as count FROM habits WHERE is_active = 1 AND is_paused = 0"),
       db.getFirstAsync(
         "SELECT COUNT(*) as count FROM checkins WHERE date = ? AND status IN ('done','resisted')",
         [today]
@@ -538,6 +604,7 @@ export const getOverallStats = async () => {
 };
 
 // ── EXPORT ────────────────────────────────────────────────────────────
+
 export const exportAllData = async () => {
   try {
     const db = await getDatabase();
