@@ -1,24 +1,25 @@
-// ─── KARMA APP — HISTORY SCREEN (PHASE E) ────────────────────────────
+// ─── KARMA APP — HISTORY SCREEN (PHASE E FIX) ────────────────────────
 // Phase E: auto_skipped added to STATUS_CONFIG
-// - Shows as ⚠️ "Not logged" with muted amber color
-// - User can tap to edit auto_skipped → done/missed within 3 days
-//   (XP correction happens automatically via editPastCheckin)
+//   ⚠️ "Not logged" — amber color, editable within 3 days
+// Fix: editPastCheckin now applies real XP correction (in habitService)
+//   Correcting auto_skipped → done gives back +13 XP (+3 refund + +10 done)
+//   Edit alert now shows exact XP change so user knows what to expect
 
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   StatusBar, Alert, ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView }    from 'react-native-safe-area-context';
-import { useFocusEffect }  from '@react-navigation/native';
-import { Colors }          from '../constants/colors';
-import { DateUtils }       from '../utils/dateUtils';
+import { SafeAreaView }   from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
+import { Colors }         from '../constants/colors';
+import { DateUtils }      from '../utils/dateUtils';
 import {
   getAllHabits, getCheckinsForHabit, editPastCheckin,
 } from '../database/habitService';
-import { getDatabase }     from '../database/database';
+import { getDatabase }    from '../database/database';
 
-// Phase E: added auto_skipped entry
+// Phase E: auto_skipped entry added
 const STATUS_CONFIG = {
   done:         { icon: '✅', label: 'Done',       color: Colors.green },
   resisted:     { icon: '✊', label: 'Resisted',   color: Colors.green },
@@ -29,12 +30,36 @@ const STATUS_CONFIG = {
   none:         { icon: '⬜', label: 'No data',    color: Colors.textDim },
 };
 
+// Returns XP delta description for the edit confirmation message
+// Mirrors _calcEditXPDelta logic in habitService — keeps UI honest
+const _getXPHint = (oldStatus, newStatus) => {
+  const wasAutoSkip = oldStatus === 'auto_skipped';
+  const wasDone     = oldStatus === 'done';
+  const wasResisted = oldStatus === 'resisted';
+
+  if (wasAutoSkip) {
+    if (newStatus === 'done')     return '  +13 XP  (refund penalty + done bonus)';
+    if (newStatus === 'resisted') return '  +18 XP  (refund penalty + resisted bonus)';
+    if (newStatus === 'missed' || newStatus === 'skipped') return '  +3 XP  (penalty refunded)';
+  }
+  if ((wasDone || wasResisted) && newStatus !== 'done' && newStatus !== 'resisted') {
+    return wasDone ? '  -10 XP  (done reversed)' : '  -15 XP  (resisted reversed)';
+  }
+  if (!wasDone && !wasResisted && oldStatus !== 'auto_skipped') {
+    if (newStatus === 'done')     return '  +10 XP';
+    if (newStatus === 'resisted') return '  +15 XP';
+  }
+  if (wasDone     && newStatus === 'resisted') return '  +5 XP';
+  if (wasResisted && newStatus === 'done')     return '  -5 XP';
+  return '';
+};
+
 const HistoryScreen = ({ navigation }) => {
-  const [habits,      setHabits]      = useState([]);
-  const [dayData,     setDayData]     = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState(null);
-  const [editSaving,  setEditSaving]  = useState(false);
+  const [habits,     setHabits]     = useState([]);
+  const [dayData,    setDayData]    = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   useFocusEffect(
     useCallback(() => { _loadData(); }, [])
@@ -48,8 +73,8 @@ const HistoryScreen = ({ navigation }) => {
       const habits = await getAllHabits();
       const days   = DateUtils.getLastNDays(30).reverse(); // Most recent first
 
-      const fromDate   = days[days.length - 1];
-      const checkins   = await db.getAllAsync(
+      const fromDate = days[days.length - 1];
+      const checkins = await db.getAllAsync(
         'SELECT * FROM checkins WHERE date >= ? ORDER BY date DESC',
         [fromDate]
       ) || [];
@@ -62,8 +87,8 @@ const HistoryScreen = ({ navigation }) => {
       });
 
       const dayDataArr = days.map(date => {
-        const dayCheckins    = checkinMap[date] || {};
-        const habitStatuses  = habits.map(h => ({
+        const dayCheckins   = checkinMap[date] || {};
+        const habitStatuses = habits.map(h => ({
           habit:   h,
           checkin: dayCheckins[h.id] || null,
           status:  dayCheckins[h.id]?.status || 'none',
@@ -103,8 +128,7 @@ const HistoryScreen = ({ navigation }) => {
       return;
     }
 
-    // Build options based on habit type
-    // Phase E: auto_skipped can be corrected to done (if you actually did it but forgot)
+    // Build options by habit type
     const options = habit.type === 'build'
       ? [
           { text: '✅ Mark Done',    status: 'done' },
@@ -116,21 +140,36 @@ const HistoryScreen = ({ navigation }) => {
           { text: '😔 Mark Slipped',  status: 'slip' },
         ];
 
-    const currentLabel = STATUS_CONFIG[currentStatus]?.label || 'No data';
+    const currentLabel  = STATUS_CONFIG[currentStatus]?.label || 'No data';
     const isAutoSkipped = currentStatus === 'auto_skipped';
+
+    // Build the message — include XP hint for each option so user knows exactly what they'll get
+    const optionHints = options
+      .map(o => `${o.text}${_getXPHint(currentStatus, o.status)}`)
+      .join('\n');
 
     Alert.alert(
       `Edit: ${habit.name}`,
-      `${DateUtils.formatDate(date)}\nCurrent: ${currentLabel}${isAutoSkipped ? '\n\nIf you actually did this, mark Done to recover XP.' : ''}`,
+      `${DateUtils.formatDate(date)}\nCurrent: ${currentLabel}${
+        isAutoSkipped
+          ? '\n\nYou forgot to log this day. If you actually did it, mark Done to recover XP.'
+          : ''
+      }\n\n${optionHints}`,
       [
         ...options.map(o => ({
-          text: o.text,
+          text: o.text.split(' ').slice(0, 2).join(' '), // short button label
           onPress: async () => {
             setEditSaving(true);
             try {
               await editPastCheckin(habit.id, date, o.status);
               await _loadData();
-              Alert.alert('✅ Updated', `${habit.name} updated for ${DateUtils.formatDate(date)}`);
+              const xpHint = _getXPHint(currentStatus, o.status);
+              Alert.alert(
+                '✅ Updated',
+                `${habit.name} → ${STATUS_CONFIG[o.status]?.label || o.status}${
+                  xpHint ? `\n${xpHint.trim()}` : ''
+                }`
+              );
             } catch (err) {
               Alert.alert('Error', err.message);
             } finally {
@@ -193,7 +232,7 @@ const HistoryScreen = ({ navigation }) => {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.editHint}>
-          Tap any habit status to edit (up to 3 days back) · ⚠️ = not logged
+          Tap any habit to edit (up to 3 days back) · ⚠️ = not logged
         </Text>
 
         {habits.length === 0 && (
@@ -210,9 +249,11 @@ const HistoryScreen = ({ navigation }) => {
             <View style={styles.dayHeader}>
               <View>
                 <Text style={[styles.dayTitle, day.isToday && { color: Colors.blue }]}>
-                  {day.isToday ? 'Today'
-                   : day.isYesterday ? 'Yesterday'
-                   : DateUtils.getDayOfWeek(new Date(day.date + 'T12:00:00'))}
+                  {day.isToday
+                    ? 'Today'
+                    : day.isYesterday
+                    ? 'Yesterday'
+                    : DateUtils.getDayOfWeek(new Date(day.date + 'T12:00:00'))}
                 </Text>
                 <Text style={styles.dayDate}>{DateUtils.formatDate(day.date)}</Text>
               </View>
@@ -237,9 +278,11 @@ const HistoryScreen = ({ navigation }) => {
               <View style={[styles.dayProgressFill, {
                 width: day.total > 0 ? `${(day.doneCount / day.total) * 100}%` : '0%',
                 backgroundColor:
-                  day.doneCount === day.total && day.total > 0 ? Colors.green
-                  : day.doneCount > 0 ? Colors.blue
-                  : Colors.backgroundCard,
+                  day.doneCount === day.total && day.total > 0
+                    ? Colors.green
+                    : day.doneCount > 0
+                    ? Colors.blue
+                    : Colors.backgroundCard,
               }]} />
             </View>
 
@@ -251,7 +294,6 @@ const HistoryScreen = ({ navigation }) => {
             {day.habitStatuses.map(({ habit, status }) => {
               const config  = STATUS_CONFIG[status] || STATUS_CONFIG.none;
               const canEdit = day.canEdit;
-
               return (
                 <TouchableOpacity
                   key={habit.id}
@@ -266,9 +308,12 @@ const HistoryScreen = ({ navigation }) => {
                     <Text style={{ fontSize: 16 }}>{habit.icon}</Text>
                   </View>
 
-                  <Text style={[styles.habitRowName, {
-                    color: status === 'none' ? Colors.textDim : Colors.textSecondary,
-                  }]} numberOfLines={1}>
+                  <Text
+                    style={[styles.habitRowName, {
+                      color: status === 'none' ? Colors.textDim : Colors.textSecondary,
+                    }]}
+                    numberOfLines={1}
+                  >
                     {habit.name}
                   </Text>
 

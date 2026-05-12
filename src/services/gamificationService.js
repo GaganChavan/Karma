@@ -35,9 +35,9 @@ export const getLevelFromXP = (xp) => {
 
 export const XP_VALUES = {
   habit_done:       10,
-  habit_resisted:   8,
+  habit_resisted:   15,
   habit_undo_done:  -10,
-  habit_undo_resist:-8,
+  habit_undo_resist:-15,
   perfect_day:      20,
   auto_skipped:     -3,   // Phase E: forgot to log
   milestone_3:      15,
