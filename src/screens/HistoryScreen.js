@@ -1,9 +1,8 @@
-// ─── KARMA APP — HISTORY SCREEN (PHASE E FIX) ────────────────────────
-// Phase E: auto_skipped added to STATUS_CONFIG
-//   ⚠️ "Not logged" — amber color, editable within 3 days
-// Fix: editPastCheckin now applies real XP correction (in habitService)
-//   Correcting auto_skipped → done gives back +13 XP (+3 refund + +10 done)
-//   Edit alert now shows exact XP change so user knows what to expect
+// ─── KARMA APP — HISTORY SCREEN (PHASE E — FIXED) ────────────────────
+// Fixes:
+// 1. Replaced static Colors import with useTheme() — responds to dark/light
+// 2. Colors.border → colors.separator (didn't exist)
+// 3. Colors.blueAlpha10 → colors.blueAlpha15 (didn't exist)
 
 import React, { useState, useCallback } from 'react';
 import {
@@ -12,31 +11,42 @@ import {
 } from 'react-native';
 import { SafeAreaView }   from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Colors }         from '../constants/colors';
+import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
 import { DateUtils }      from '../utils/dateUtils';
 import {
-  getAllHabits, getCheckinsForHabit, editPastCheckin,
+  getAllHabits, editPastCheckin,
 } from '../database/habitService';
 import { getDatabase }    from '../database/database';
 
-// Phase E: auto_skipped entry added
-const STATUS_CONFIG = {
-  done:         { icon: '✅', label: 'Done',       color: Colors.green },
-  resisted:     { icon: '✊', label: 'Resisted',   color: Colors.green },
-  missed:       { icon: '❌', label: 'Missed',     color: Colors.red },
-  slip:         { icon: '😔', label: 'Slipped',    color: Colors.red },
-  skipped:      { icon: '⏭', label: 'Skipped',    color: Colors.gold },
-  auto_skipped: { icon: '⚠️', label: 'Not logged', color: '#F5A623' },
-  none:         { icon: '⬜', label: 'No data',    color: Colors.textDim },
+// Phase E: auto_skipped entry — built dynamically using theme colors below
+const STATUS_CONFIG_STATIC = {
+  done:         { icon: '✅', label: 'Done'       },
+  resisted:     { icon: '✊', label: 'Resisted'   },
+  missed:       { icon: '❌', label: 'Missed'     },
+  slip:         { icon: '😔', label: 'Slipped'    },
+  skipped:      { icon: '⏭', label: 'Skipped'    },
+  auto_skipped: { icon: '⚠️', label: 'Not logged' },
+  none:         { icon: '⬜', label: 'No data'    },
 };
 
-// Returns XP delta description for the edit confirmation message
-// Mirrors _calcEditXPDelta logic in habitService — keeps UI honest
+// Color resolved at render time using live theme colors
+const getStatusColor = (status, colors) => {
+  switch (status) {
+    case 'done':
+    case 'resisted':     return colors.green;
+    case 'missed':
+    case 'slip':         return colors.red;
+    case 'skipped':      return colors.gold;
+    case 'auto_skipped': return '#F5A623';
+    default:             return colors.textDim;
+  }
+};
+
+// XP hint for edit dialog
 const _getXPHint = (oldStatus, newStatus) => {
   const wasAutoSkip = oldStatus === 'auto_skipped';
   const wasDone     = oldStatus === 'done';
   const wasResisted = oldStatus === 'resisted';
-
   if (wasAutoSkip) {
     if (newStatus === 'done')     return '  +13 XP  (refund penalty + done bonus)';
     if (newStatus === 'resisted') return '  +18 XP  (refund penalty + resisted bonus)';
@@ -49,12 +59,13 @@ const _getXPHint = (oldStatus, newStatus) => {
     if (newStatus === 'done')     return '  +10 XP';
     if (newStatus === 'resisted') return '  +15 XP';
   }
-  if (wasDone     && newStatus === 'resisted') return '  +5 XP';
-  if (wasResisted && newStatus === 'done')     return '  -5 XP';
+  if (wasDone && newStatus === 'resisted') return '  +5 XP';
+  if (wasResisted && newStatus === 'done') return '  -5 XP';
   return '';
 };
 
 const HistoryScreen = ({ navigation }) => {
+  const { colors, isDark } = useTheme(); // FIX: live theme colors
   const [habits,     setHabits]     = useState([]);
   const [dayData,    setDayData]    = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -71,15 +82,14 @@ const HistoryScreen = ({ navigation }) => {
       setError(null);
       const db     = await getDatabase();
       const habits = await getAllHabits();
-      const days   = DateUtils.getLastNDays(30).reverse(); // Most recent first
-
+      const days   = DateUtils.getLastNDays(30).reverse();
       const fromDate = days[days.length - 1];
+
       const checkins = await db.getAllAsync(
         'SELECT * FROM checkins WHERE date >= ? ORDER BY date DESC',
         [fromDate]
       ) || [];
 
-      // Build map: date → habit_id → checkin
       const checkinMap = {};
       checkins.forEach(c => {
         if (!checkinMap[c.date]) checkinMap[c.date] = {};
@@ -89,7 +99,7 @@ const HistoryScreen = ({ navigation }) => {
       const dayDataArr = days.map(date => {
         const dayCheckins   = checkinMap[date] || {};
         const habitStatuses = habits.map(h => ({
-          habit:   h,
+          habit:  h,
           checkin: dayCheckins[h.id] || null,
           status:  dayCheckins[h.id]?.status || 'none',
         }));
@@ -102,8 +112,8 @@ const HistoryScreen = ({ navigation }) => {
           isYesterday: DateUtils.isYesterday(date),
           canEdit:     DateUtils.daysBetween(date, DateUtils.today()) <= 3,
           habitStatuses,
-          doneCount:   done,
-          total:       habits.length,
+          doneCount: done,
+          total:     habits.length,
         };
       });
 
@@ -128,7 +138,6 @@ const HistoryScreen = ({ navigation }) => {
       return;
     }
 
-    // Build options by habit type
     const options = habit.type === 'build'
       ? [
           { text: '✅ Mark Done',    status: 'done' },
@@ -140,11 +149,9 @@ const HistoryScreen = ({ navigation }) => {
           { text: '😔 Mark Slipped',  status: 'slip' },
         ];
 
-    const currentLabel  = STATUS_CONFIG[currentStatus]?.label || 'No data';
+    const currentLabel  = STATUS_CONFIG_STATIC[currentStatus]?.label || 'No data';
     const isAutoSkipped = currentStatus === 'auto_skipped';
-
-    // Build the message — include XP hint for each option so user knows exactly what they'll get
-    const optionHints = options
+    const optionHints   = options
       .map(o => `${o.text}${_getXPHint(currentStatus, o.status)}`)
       .join('\n');
 
@@ -157,7 +164,7 @@ const HistoryScreen = ({ navigation }) => {
       }\n\n${optionHints}`,
       [
         ...options.map(o => ({
-          text: o.text.split(' ').slice(0, 2).join(' '), // short button label
+          text: o.text.split(' ').slice(0, 2).join(' '),
           onPress: async () => {
             setEditSaving(true);
             try {
@@ -166,7 +173,7 @@ const HistoryScreen = ({ navigation }) => {
               const xpHint = _getXPHint(currentStatus, o.status);
               Alert.alert(
                 '✅ Updated',
-                `${habit.name} → ${STATUS_CONFIG[o.status]?.label || o.status}${
+                `${habit.name} → ${STATUS_CONFIG_STATIC[o.status]?.label || o.status}${
                   xpHint ? `\n${xpHint.trim()}` : ''
                 }`
               );
@@ -182,47 +189,51 @@ const HistoryScreen = ({ navigation }) => {
     );
   };
 
-  // ── Render ────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
-        <ActivityIndicator size="large" color={Colors.blue} />
-        <Text style={styles.loadingText}>Loading history...</Text>
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <ActivityIndicator size="large" color={colors.blue} />
+        <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading history...</Text>
       </View>
     );
   }
 
   if (error) {
     return (
-      <View style={styles.center}>
-        <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={_loadData}>
-          <Text style={styles.retryText}>Retry</Text>
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <Text style={[styles.errorText, { color: colors.red }]}>{error}</Text>
+        <TouchableOpacity
+          style={[styles.retryBtn, { backgroundColor: colors.blue }]}
+          onPress={_loadData}
+        >
+          <Text style={[styles.retryText, { color: colors.white }]}>Retry</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
+    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['top']}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: colors.separator }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={styles.backText}>← Back</Text>
+          <Text style={[styles.backText, { color: colors.blue }]}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>History</Text>
+        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>History</Text>
         <View style={{ width: 60 }} />
       </View>
 
+      {/* Saving indicator */}
       {editSaving && (
-        <View style={styles.savingBar}>
-          <ActivityIndicator size="small" color={Colors.blue} />
-          <Text style={styles.savingText}>Saving...</Text>
+        <View style={[styles.savingBar, { backgroundColor: colors.blueAlpha15 }]}>
+          <ActivityIndicator size="small" color={colors.blue} />
+          <Text style={[styles.savingText, { color: colors.blue }]}>Saving...</Text>
         </View>
       )}
 
@@ -231,39 +242,49 @@ const HistoryScreen = ({ navigation }) => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.editHint}>
+        <Text style={[styles.editHint, { color: colors.textDim }]}>
           Tap any habit to edit (up to 3 days back) · ⚠️ = not logged
         </Text>
 
         {habits.length === 0 && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>📅</Text>
-            <Text style={styles.emptyText}>No habits yet. Add habits to see history.</Text>
+            <Text style={[styles.emptyText, { color: colors.textDim }]}>
+              No habits yet. Add habits to see history.
+            </Text>
           </View>
         )}
 
         {dayData.map((day) => (
-          <View key={day.date} style={styles.dayCard}>
-
+          <View
+            key={day.date}
+            style={[styles.dayCard, {
+              backgroundColor: colors.backgroundCard,
+              borderColor:     colors.separator,  // FIX: was Colors.border
+            }]}
+          >
             {/* Day header */}
             <View style={styles.dayHeader}>
               <View>
-                <Text style={[styles.dayTitle, day.isToday && { color: Colors.blue }]}>
+                <Text style={[styles.dayTitle, {
+                  color: day.isToday ? colors.blue : colors.textPrimary,
+                }]}>
                   {day.isToday
                     ? 'Today'
                     : day.isYesterday
                     ? 'Yesterday'
                     : DateUtils.getDayOfWeek(new Date(day.date + 'T12:00:00'))}
                 </Text>
-                <Text style={styles.dayDate}>{DateUtils.formatDate(day.date)}</Text>
+                <Text style={[styles.dayDate, { color: colors.textDim }]}>
+                  {DateUtils.formatDate(day.date)}
+                </Text>
               </View>
               <View style={styles.dayScore}>
                 <Text style={[styles.dayScoreText, {
-                  color: day.doneCount === day.total && day.total > 0
-                    ? Colors.green
-                    : day.doneCount === 0
-                    ? Colors.textDim
-                    : Colors.gold,
+                  color:
+                    day.doneCount === day.total && day.total > 0 ? colors.green
+                    : day.doneCount === 0 ? colors.textDim
+                    : colors.gold,
                 }]}>
                   {day.doneCount}/{day.total}
                 </Text>
@@ -274,26 +295,27 @@ const HistoryScreen = ({ navigation }) => {
             </View>
 
             {/* Progress bar */}
-            <View style={styles.dayProgressTrack}>
+            <View style={[styles.dayProgressTrack, { backgroundColor: colors.separator }]}>
               <View style={[styles.dayProgressFill, {
                 width: day.total > 0 ? `${(day.doneCount / day.total) * 100}%` : '0%',
                 backgroundColor:
-                  day.doneCount === day.total && day.total > 0
-                    ? Colors.green
-                    : day.doneCount > 0
-                    ? Colors.blue
-                    : Colors.backgroundCard,
+                  day.doneCount === day.total && day.total > 0 ? colors.green
+                  : day.doneCount > 0 ? colors.blue
+                  : colors.backgroundCard,
               }]} />
             </View>
 
-            {/* Habit rows */}
             {day.total === 0 && (
-              <Text style={styles.noHabitsText}>No habits were active on this day</Text>
+              <Text style={[styles.noHabitsText, { color: colors.textDim }]}>
+                No habits were active on this day
+              </Text>
             )}
 
+            {/* Habit rows */}
             {day.habitStatuses.map(({ habit, status }) => {
-              const config  = STATUS_CONFIG[status] || STATUS_CONFIG.none;
-              const canEdit = day.canEdit;
+              const cfg      = STATUS_CONFIG_STATIC[status] || STATUS_CONFIG_STATIC.none;
+              const clr      = getStatusColor(status, colors);
+              const canEdit  = day.canEdit;
               return (
                 <TouchableOpacity
                   key={habit.id}
@@ -303,14 +325,14 @@ const HistoryScreen = ({ navigation }) => {
                   disabled={!canEdit && status === 'none'}
                 >
                   <View style={[styles.habitRowIcon, {
-                    backgroundColor: (habit.color || Colors.blue) + '20',
+                    backgroundColor: (habit.color || colors.blue) + '20',
                   }]}>
                     <Text style={{ fontSize: 16 }}>{habit.icon}</Text>
                   </View>
 
                   <Text
                     style={[styles.habitRowName, {
-                      color: status === 'none' ? Colors.textDim : Colors.textSecondary,
+                      color: status === 'none' ? colors.textDim : colors.textSecondary,
                     }]}
                     numberOfLines={1}
                   >
@@ -318,17 +340,17 @@ const HistoryScreen = ({ navigation }) => {
                   </Text>
 
                   <View style={[styles.statusBadge, {
-                    backgroundColor: config.color + '20',
-                    borderColor:     config.color + '44',
+                    backgroundColor: clr + '20',
+                    borderColor:     clr + '44',
                   }]}>
-                    <Text style={styles.statusIcon}>{config.icon}</Text>
-                    <Text style={[styles.statusLabel, { color: config.color }]}>
-                      {config.label}
+                    <Text style={styles.statusIcon}>{cfg.icon}</Text>
+                    <Text style={[styles.statusLabel, { color: clr }]}>
+                      {cfg.label}
                     </Text>
                   </View>
 
                   {canEdit && (
-                    <Text style={styles.editIcon}>✎</Text>
+                    <Text style={[styles.editIcon, { color: colors.textDim }]}>✎</Text>
                   )}
                 </TouchableOpacity>
               );
@@ -343,41 +365,41 @@ const HistoryScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  screen:           { flex: 1, backgroundColor: Colors.background },
+  screen:           { flex: 1 },
   scroll:           { flex: 1 },
   scrollContent:    { padding: 16 },
-  center:           { flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  loadingText:      { color: Colors.textMuted, fontSize: 14 },
-  errorText:        { color: Colors.red, textAlign: 'center', padding: 20 },
-  retryBtn:         { backgroundColor: Colors.blue, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 },
-  retryText:        { color: Colors.white, fontWeight: 'bold' },
-  header:           { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  center:           { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  loadingText:      { fontSize: 14 },
+  errorText:        { textAlign: 'center', padding: 20 },
+  retryBtn:         { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 },
+  retryText:        { fontWeight: 'bold' },
+  header:           { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1 },
   backBtn:          { padding: 4, minWidth: 60 },
-  backText:         { color: Colors.blue, fontSize: 14 },
-  headerTitle:      { fontSize: 18, color: Colors.textPrimary, fontWeight: 'bold' },
-  savingBar:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 8, backgroundColor: Colors.blueAlpha10 },
-  savingText:       { color: Colors.blue, fontSize: 12 },
-  editHint:         { fontSize: 11, color: Colors.textDim, textAlign: 'center', marginBottom: 16, letterSpacing: 0.3 },
+  backText:         { fontSize: 14 },
+  headerTitle:      { fontSize: 18, fontWeight: 'bold' },
+  savingBar:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 8 },
+  savingText:       { fontSize: 12 },
+  editHint:         { fontSize: 11, textAlign: 'center', marginBottom: 16, letterSpacing: 0.3 },
   emptyState:       { alignItems: 'center', padding: 40, gap: 12 },
   emptyIcon:        { fontSize: 48 },
-  emptyText:        { fontSize: 13, color: Colors.textDim, textAlign: 'center' },
-  dayCard:          { backgroundColor: Colors.backgroundCard, borderRadius: 16, borderWidth: 1, borderColor: Colors.border, marginBottom: 12, padding: 14, gap: 10 },
+  emptyText:        { fontSize: 13, textAlign: 'center' },
+  dayCard:          { borderRadius: 16, borderWidth: 1, marginBottom: 12, padding: 14, gap: 10 },
   dayHeader:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  dayTitle:         { fontSize: 16, color: Colors.textPrimary, fontWeight: 'bold' },
-  dayDate:          { fontSize: 11, color: Colors.textDim, marginTop: 2 },
+  dayTitle:         { fontSize: 16, fontWeight: 'bold' },
+  dayDate:          { fontSize: 11, marginTop: 2 },
   dayScore:         { flexDirection: 'row', alignItems: 'center', gap: 4 },
   dayScoreText:     { fontSize: 18, fontWeight: 'bold' },
   perfectBadge:     { fontSize: 16 },
-  dayProgressTrack: { height: 5, backgroundColor: Colors.border, borderRadius: 3, overflow: 'hidden' },
+  dayProgressTrack: { height: 5, borderRadius: 3, overflow: 'hidden' },
   dayProgressFill:  { height: '100%', borderRadius: 3 },
-  noHabitsText:     { fontSize: 12, color: Colors.textDim, textAlign: 'center' },
+  noHabitsText:     { fontSize: 12, textAlign: 'center' },
   habitRow:         { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
   habitRowIcon:     { width: 34, height: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   habitRowName:     { flex: 1, fontSize: 13, fontWeight: '500' },
   statusBadge:      { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 10, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4 },
   statusIcon:       { fontSize: 12 },
   statusLabel:      { fontSize: 11, fontWeight: '600' },
-  editIcon:         { fontSize: 14, color: Colors.textDim },
+  editIcon:         { fontSize: 14 },
 });
 
 export default HistoryScreen;

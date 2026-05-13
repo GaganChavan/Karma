@@ -1,16 +1,19 @@
-// ─── KARMA APP — CELEBRATION SCREEN (GITA) ───────────────────────────
-// "The rein held today."
-// Chariot language. Gita shloka. WhatsApp share.
+// ─── KARMA APP — CELEBRATION SCREEN (PHASE E — FIXED) ────────────────
+// Fix: WhatsApp share now fetches real habits/checkins/streaks on demand
+// Previously sent habits:[], checkins:{} → blank report
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Animated, StatusBar, Dimensions,
+  Animated, StatusBar, Dimensions, ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView }  from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius } from '../constants/colors';
 import { SHLOKAS }       from '../constants/shlokas';
 import { getFullStats }  from '../services/gamificationService';
+import {
+  getAllHabits, getTodayCheckins, getStreak, getSetting,
+} from '../database/habitService';
 import { sendDailyWhatsApp } from '../services/whatsappService';
 import ShlokaDisplay     from '../components/ShlokaDisplay';
 
@@ -28,19 +31,23 @@ const CelebrationScreen = ({ navigation, route }) => {
   const {
     xpEarned  = 0,
     perfectDay = false,
-    alterEgo   = 'Neel',
+    alterEgo  = 'Neel',
   } = route?.params || {};
 
-  const [stats, setStats] = useState(null);
+  const [stats,    setStats]    = useState(null);
+  const [sending,  setSending]  = useState(false);
 
   const spin   = useRef(new Animated.Value(0)).current;
   const fade   = useRef(new Animated.Value(0)).current;
   const scale  = useRef(new Animated.Value(0.6)).current;
   const slideY = useRef(new Animated.Value(30)).current;
-  const particleAnims = useRef(PARTICLES.map(() => ({
-    opacity: new Animated.Value(0),
-    y:       new Animated.Value(0),
-  }))).current;
+
+  const particleAnims = useRef(
+    PARTICLES.map(() => ({
+      opacity: new Animated.Value(0),
+      y:       new Animated.Value(0),
+    }))
+  ).current;
 
   const shloka = SHLOKAS.allDone;
 
@@ -60,16 +67,48 @@ const CelebrationScreen = ({ navigation, route }) => {
       Animated.timing(slideY, { toValue: 0, duration: 500, delay: 200, useNativeDriver: true }),
     ]).start();
 
-    Animated.stagger(60, particleAnims.map((a, i) =>
-      Animated.sequence([
-        Animated.delay(i * 40),
-        Animated.parallel([
-          Animated.timing(a.opacity, { toValue: 0.9, duration: 300, useNativeDriver: true }),
-          Animated.timing(a.y,       { toValue: -80, duration: 1000, useNativeDriver: true }),
-        ]),
-        Animated.timing(a.opacity, { toValue: 0, duration: 400, useNativeDriver: true }),
-      ])
-    )).start();
+    Animated.stagger(60,
+      particleAnims.map((a, i) =>
+        Animated.sequence([
+          Animated.delay(i * 40),
+          Animated.parallel([
+            Animated.timing(a.opacity, { toValue: 0.9, duration: 300,  useNativeDriver: true }),
+            Animated.timing(a.y,       { toValue: -80, duration: 1000, useNativeDriver: true }),
+          ]),
+          Animated.timing(a.opacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+        ])
+      )
+    ).start();
+  };
+
+  // FIX: Fetch real habits + checkins + streaks before sending WhatsApp
+  const _sendWA = async () => {
+    setSending(true);
+    try {
+      const habits    = await getAllHabits();
+      const todayCIs  = await getTodayCheckins();
+      const checkins  = {};
+      todayCIs.forEach(c => { checkins[c.habit_id] = c; });
+      const streaks   = {};
+      await Promise.all(habits.map(async h => {
+        try { streaks[h.id] = await getStreak(h.id); } catch {}
+      }));
+      const ego = await getSetting('alter_ego');
+      await sendDailyWhatsApp({
+        alterEgo:   ego || alterEgo,
+        habits,
+        checkins,
+        streaks,
+        totalXP:    stats?.totalXP   || 0,
+        todayXP:    xpEarned,
+        karmaScore: stats?.karmaScore || 0,
+        levelInfo:  stats?.levelInfo,
+      });
+    } catch (err) {
+      console.warn('CelebrationScreen WA error:', err.message);
+    } finally {
+      setSending(false);
+    }
   };
 
   const spinDeg  = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
@@ -82,9 +121,9 @@ const CelebrationScreen = ({ navigation, route }) => {
       {/* Rings */}
       {[260, 200, 140].map((s, i) => (
         <View key={i} style={[styles.ring, {
-          width: s, height: s, borderRadius: s/2,
-          top:  height * 0.25 - s/2,
-          left: width/2 - s/2,
+          width: s, height: s, borderRadius: s / 2,
+          top: height * 0.25 - s / 2,
+          left: width / 2 - s / 2,
           opacity: 0.04 + i * 0.03,
         }]} />
       ))}
@@ -92,18 +131,18 @@ const CelebrationScreen = ({ navigation, route }) => {
       {/* Particles */}
       {PARTICLES.map((p, i) => (
         <Animated.View key={p.id} style={[styles.particle, {
-          left:   `${p.x}%`,
-          top:    `${p.y}%`,
-          width:   p.size,
-          height:  p.size,
-          borderRadius: p.size / 2,
+          left:            `${p.x}%`,
+          top:             `${p.y}%`,
+          width:           p.size,
+          height:          p.size,
+          borderRadius:    p.size / 2,
           backgroundColor: p.color,
-          opacity:   particleAnims[i].opacity,
-          transform: [{ translateY: particleAnims[i].y }],
+          opacity:         particleAnims[i].opacity,
+          transform:       [{ translateY: particleAnims[i].y }],
         }]} />
       ))}
 
-      <SafeAreaView style={styles.safe} edges={['top','bottom']}>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <Animated.View style={[styles.content, { opacity: fade }]}>
 
           {/* Spinning wheel */}
@@ -113,7 +152,6 @@ const CelebrationScreen = ({ navigation, route }) => {
 
           <Animated.View style={[styles.textBlock, { transform: [{ translateY: slideY }] }]}>
 
-            {/* Chariot language */}
             <Text style={styles.karmaLabel}>KARMA EARNED</Text>
             <Text style={styles.title}>
               {perfectDay ? 'The Chariot Was Flawless' : 'The Rein Held Today'}
@@ -121,8 +159,7 @@ const CelebrationScreen = ({ navigation, route }) => {
             <Text style={styles.subtitle}>
               {perfectDay
                 ? `Every battle won. Every sense mastered, ${alterEgo}.`
-                : `All habits complete. The horses obeyed today, ${alterEgo}.`
-              }
+                : `All habits complete. The horses obeyed today, ${alterEgo}.`}
             </Text>
 
             {/* XP card */}
@@ -154,13 +191,17 @@ const CelebrationScreen = ({ navigation, route }) => {
             {/* Gita shloka */}
             <ShlokaDisplay shloka={shloka} variant="card" />
 
-            {/* WhatsApp share */}
+            {/* WhatsApp share — FIX: fetches real data on press */}
             <TouchableOpacity
-              style={styles.waBtn}
-              onPress={() => sendDailyWhatsApp({ alterEgo, habits: [], checkins: {}, streaks: {}, totalXP: xpEarned, karmaScore: stats?.karmaScore || 0, levelInfo })}
+              style={[styles.waBtn, { opacity: sending ? 0.7 : 1 }]}
+              onPress={_sendWA}
               activeOpacity={0.8}
+              disabled={sending}
             >
-              <Text style={styles.waBtnText}>📱 Share on WhatsApp</Text>
+              {sending
+                ? <ActivityIndicator size="small" color="#25D166" />
+                : <Text style={styles.waBtnText}>📱 Share on WhatsApp</Text>
+              }
             </TouchableOpacity>
 
             {/* Continue */}
@@ -180,79 +221,30 @@ const CelebrationScreen = ({ navigation, route }) => {
 };
 
 const styles = StyleSheet.create({
-  screen:   { flex: 1, backgroundColor: '#000' },
-  ring:     { position: 'absolute', borderWidth: 1, borderColor: Colors.gold },
-  particle: { position: 'absolute' },
-  safe:     { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  content:  { alignItems: 'center', width: '100%', paddingHorizontal: Spacing.xxl },
-
-  wheel: {
-    fontSize:         80,
-    color:            Colors.gold,
-    textShadowColor:  Colors.gold,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 24,
-    marginBottom:     Spacing.lg,
-  },
-  textBlock:    { alignItems: 'center', width: '100%', gap: Spacing.lg },
-  karmaLabel:   { ...Typography.caption2, color: Colors.gold, letterSpacing: 4 },
-  title:        { ...Typography.title1, color: Colors.textPrimary, textAlign: 'center' },
-  subtitle:     { ...Typography.callout, color: Colors.textMuted, textAlign: 'center' },
-
-  xpCard: {
-    backgroundColor: Colors.goldAlpha15,
-    borderRadius:    Radius.xl,
-    borderWidth:      1,
-    borderColor:     Colors.goldAlpha40,
-    paddingHorizontal: 36,
-    paddingVertical:   14,
-    alignItems:       'center',
-    gap:              Spacing.xs,
-    width:            '100%',
-  },
-  xpLabel:    { ...Typography.caption2, color: Colors.gold, letterSpacing: 3 },
-  xpValue:    { fontSize: 32, fontWeight: '700', color: Colors.goldBright },
-  bonusText:  { ...Typography.caption1, color: Colors.green },
-
-  levelCard: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               Spacing.md,
-    backgroundColor:   Colors.backgroundCard,
-    borderRadius:      Radius.lg,
-    borderWidth:        1,
-    borderColor:       Colors.separator,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical:   Spacing.md,
-    width:             '100%',
-  },
+  screen:          { flex: 1, backgroundColor: '#000' },
+  ring:            { position: 'absolute', borderWidth: 1, borderColor: Colors.gold },
+  particle:        { position: 'absolute' },
+  safe:            { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  content:         { alignItems: 'center', width: '100%', paddingHorizontal: Spacing.xxl },
+  wheel:           { fontSize: 80, color: Colors.gold, textShadowColor: Colors.gold, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 24, marginBottom: Spacing.lg },
+  textBlock:       { alignItems: 'center', width: '100%', gap: Spacing.lg },
+  karmaLabel:      { ...Typography.caption2, color: Colors.gold, letterSpacing: 4 },
+  title:           { ...Typography.title1, color: Colors.textPrimary, textAlign: 'center' },
+  subtitle:        { ...Typography.callout, color: Colors.textMuted, textAlign: 'center' },
+  xpCard:          { backgroundColor: Colors.goldAlpha15, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.goldAlpha40, paddingHorizontal: 36, paddingVertical: 14, alignItems: 'center', gap: Spacing.xs, width: '100%' },
+  xpLabel:         { ...Typography.caption2, color: Colors.gold, letterSpacing: 3 },
+  xpValue:         { fontSize: 32, fontWeight: '700', color: Colors.goldBright },
+  bonusText:       { ...Typography.caption1, color: Colors.green },
+  levelCard:       { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: Colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.separator, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, width: '100%' },
   levelIcon:       { fontSize: 30 },
   levelTitle:      { ...Typography.headline },
   levelXP:         { ...Typography.caption1, color: Colors.textMuted, marginTop: 3 },
   levelRight:      { marginLeft: 'auto', alignItems: 'flex-end' },
   karmaScore:      { fontSize: 24, fontWeight: '700', color: Colors.blue },
   karmaScoreLabel: { ...Typography.caption2, color: Colors.textDim },
-
-  waBtn: {
-    backgroundColor: 'rgba(37,211,102,0.12)',
-    borderRadius:    Radius.lg,
-    borderWidth:      1,
-    borderColor:     'rgba(37,211,102,0.30)',
-    paddingVertical:  12,
-    paddingHorizontal: 24,
-    alignItems:      'center',
-    width:           '100%',
-  },
-  waBtnText: { ...Typography.subheadline, color: '#25D166', fontWeight: '600' },
-
-  continueBtn: {
-    backgroundColor:  Colors.gold,
-    borderRadius:     Radius.lg,
-    paddingHorizontal: 40,
-    paddingVertical:   16,
-    width:            '100%',
-    alignItems:       'center',
-  },
+  waBtn:           { backgroundColor: 'rgba(37,211,102,0.12)', borderRadius: Radius.lg, borderWidth: 1, borderColor: 'rgba(37,211,102,0.30)', paddingVertical: 12, paddingHorizontal: 24, alignItems: 'center', width: '100%', minHeight: 46, justifyContent: 'center' },
+  waBtnText:       { ...Typography.subheadline, color: '#25D166', fontWeight: '600' },
+  continueBtn:     { backgroundColor: Colors.gold, borderRadius: Radius.lg, paddingHorizontal: 40, paddingVertical: 16, width: '100%', alignItems: 'center' },
   continueBtnText: { ...Typography.headline, color: '#000' },
 });
 

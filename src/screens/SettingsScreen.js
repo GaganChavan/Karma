@@ -1,8 +1,6 @@
-// ─── KARMA APP — SETTINGS SCREEN (PHASE D) ───────────────────────────
-// Added: WFO / Travel Mode entry point
-// Added: Before vs Now link
-// Added: Neural Rewiring link
-// Theme toggle now instant via useTheme()
+// ─── KARMA APP — SETTINGS SCREEN (PHASE E — FIXED) ───────────────────
+// Fix: _sendWeeklyNow now calculates real weekly consistency rate
+// Previously always sent weeklyRate: 75 (hardcoded)
 
 import React, { useState, useCallback } from 'react';
 import {
@@ -10,25 +8,28 @@ import {
   Switch, TextInput, Alert, ActivityIndicator,
   StyleSheet, StatusBar,
 } from 'react-native';
-import { SafeAreaView }   from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { SafeAreaView }    from 'react-native-safe-area-context';
+import { useFocusEffect }  from '@react-navigation/native';
 import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
-import { getSetting, setSetting, getAllSettings } from '../database/habitService';
+import {
+  getSetting, setSetting, getAllSettings,
+  getAllHabits, getTodayCheckins, getStreak,
+} from '../database/habitService';
 import {
   cancelAllNotifications, scheduleAllHabitNotifications,
 } from '../services/notificationService';
 import { exportData, importData, clearAllData, getBackupInfo } from '../services/backupService';
-import { getFullStats } from '../services/gamificationService';
-import { SHLOKAS } from '../constants/shlokas';
-import ShlokaDisplay from '../components/ShlokaDisplay';
+import { getFullStats }    from '../services/gamificationService';
+import { SHLOKAS }         from '../constants/shlokas';
+import ShlokaDisplay       from '../components/ShlokaDisplay';
 import { sendDailyWhatsApp, sendWeeklyWhatsApp } from '../services/whatsappService';
-import { getAllHabits, getTodayCheckins, getStreak } from '../database/habitService';
-import { isWFOMode } from '../services/wfoService';
+import { isWFOMode }       from '../services/wfoService';
+import { getDatabase }     from '../database/database';
+import { getTriggerPattern } from '../database/moodService';
 
 const SettingsScreen = ({ navigation }) => {
   const { colors, isDark, toggleTheme } = useTheme();
-
-  const [alterEgo,      setAlterEgo]      = useState('Neel');
+  const [alterEgo,      setAlterEgo]      = useState('Gagan');
   const [identityStmt,  setIdentityStmt]  = useState('');
   const [editingName,   setEditingName]   = useState(false);
   const [editingId,     setEditingId]     = useState(false);
@@ -59,28 +60,34 @@ const SettingsScreen = ({ navigation }) => {
         getBackupInfo(),
         isWFOMode(),
       ]);
-      setAlterEgo(settings.alter_ego || 'Neel');
-      setTempName(settings.alter_ego || 'Neel');
-      setIdentityStmt(settings.identity_statement || 'I am Neel. My mind holds the reins. The horses do not rule me.');
+      setAlterEgo(settings.alter_ego       || 'Gagan');
+      setTempName(settings.alter_ego       || 'Gagan');
+      setIdentityStmt(settings.identity_statement || '');
       setTempId(settings.identity_statement || '');
       setNotifEnabled(settings.notification_master !== 'false');
-      setWaDaily(settings.wa_daily !== 'false');
+      setWaDaily(settings.wa_daily  !== 'false');
       setWaWeekly(settings.wa_weekly !== 'false');
       setWeekStart(settings.week_starts || 'monday');
       setGamStats(gam);
       setBackupInfo(info);
       setWfoActive(wfo);
-      setWfoCity(settings.wfo_city || 'Bangalore');
+      setWfoCity(settings.wfo_city  || 'Bangalore');
       setHomeCity(settings.home_city || 'Hassan');
-    } catch (err) { console.warn('Settings load:', err.message); }
-    finally { setLoading(false); }
+    } catch (err) {
+      console.warn('Settings load:', err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const _saveAlterEgo = async () => {
     const name = tempName.trim();
     if (!name) { Alert.alert('Error', 'Name cannot be empty'); return; }
-    try { await setSetting('alter_ego', name); setAlterEgo(name); setEditingName(false); }
-    catch (err) { Alert.alert('Error', err.message); }
+    try {
+      await setSetting('alter_ego', name);
+      setAlterEgo(name);
+      setEditingName(false);
+    } catch (err) { Alert.alert('Error', err.message); }
   };
 
   const _saveIdentity = async () => {
@@ -88,14 +95,17 @@ const SettingsScreen = ({ navigation }) => {
     if (!stmt) { Alert.alert('Error', 'Declaration cannot be empty'); return; }
     try {
       await setSetting('identity_statement', stmt);
-      setIdentityStmt(stmt); setEditingId(false);
+      setIdentityStmt(stmt);
+      setEditingId(false);
       Alert.alert('✅ Identity Declared', 'Shown every morning.');
     } catch (err) { Alert.alert('Error', err.message); }
   };
 
   const _toggleTheme = async (value) => {
-    try { await setSetting('app_theme', value ? 'dark' : 'light'); toggleTheme(value); }
-    catch (err) { Alert.alert('Error', err.message); }
+    try {
+      await setSetting('app_theme', value ? 'dark' : 'light');
+      toggleTheme(value);
+    } catch (err) { Alert.alert('Error', err.message); }
   };
 
   const _toggleNotif = async (value) => {
@@ -115,16 +125,113 @@ const SettingsScreen = ({ navigation }) => {
       const cMap     = {};
       todayCIs.forEach(c => { cMap[c.habit_id] = c; });
       const streaks  = {};
-      await Promise.all(habits.map(async h => { try { streaks[h.id] = await getStreak(h.id); } catch {} }));
-      await sendDailyWhatsApp({ alterEgo, habits, checkins: cMap, streaks, totalXP: gamStats?.totalXP || 0, todayXP: 0, karmaScore: gamStats?.karmaScore || 0, levelInfo: gamStats?.levelInfo });
+      await Promise.all(habits.map(async h => {
+        try { streaks[h.id] = await getStreak(h.id); } catch {}
+      }));
+      await sendDailyWhatsApp({
+        alterEgo,
+        habits,
+        checkins: cMap,
+        streaks,
+        totalXP:    gamStats?.totalXP    || 0,
+        todayXP:    0,
+        karmaScore: gamStats?.karmaScore || 0,
+        levelInfo:  gamStats?.levelInfo,
+      });
     } catch (err) { Alert.alert('Error', err.message); }
     finally { setSendingWA(false); }
   };
 
+  // FIX: Calculate real weekly stats before sending
   const _sendWeeklyNow = async () => {
     setSendingWA(true);
     try {
-      await sendWeeklyWhatsApp({ alterEgo, weeklyRate: 75, topStreaks: [], totalXP: gamStats?.totalXP || 0, weekXP: 0, karmaScore: gamStats?.karmaScore || 0, karmaScorePrev: 0, levelInfo: gamStats?.levelInfo, weekNumber: Math.ceil(new Date().getDate() / 7) });
+      const habits = await getAllHabits();
+      const db     = await getDatabase();
+
+      // Week dates (Mon–today)
+      const today       = new Date();
+      const dow         = today.getDay();
+      const daysFromMon = dow === 0 ? 6 : dow - 1;
+      const monday      = new Date(today);
+      monday.setDate(today.getDate() - daysFromMon);
+      const fromDate  = monday.toISOString().split('T')[0];
+      const todayDate = today.toISOString().split('T')[0];
+
+      // Actual weekly completion rate
+      let weeklyRate = 0;
+      if (habits.length > 0 && daysFromMon + 1 > 0) {
+        const done = await db.getFirstAsync(
+          `SELECT COUNT(*) as count FROM checkins
+           WHERE date >= ? AND date <= ? AND status IN ('done','resisted')`,
+          [fromDate, todayDate]
+        );
+        const possible = habits.length * (daysFromMon + 1);
+        weeklyRate = possible > 0
+          ? Math.round(((done?.count || 0) / possible) * 100)
+          : 0;
+      }
+
+      // Top streaks this week
+      const streakArr = await Promise.all(habits.map(async h => {
+        try {
+          const s = await getStreak(h.id);
+          return { name: h.name, current: s.current };
+        } catch { return { name: h.name, current: 0 }; }
+      }));
+      const topStreaks = streakArr
+        .filter(s => s.current > 0)
+        .sort((a, b) => b.current - a.current)
+        .slice(0, 3);
+
+      // Best and needs-work habit
+      const habitRates = await Promise.all(habits.map(async h => {
+        const done  = await db.getFirstAsync(
+          `SELECT COUNT(*) as count FROM checkins
+           WHERE habit_id = ? AND date >= ? AND status IN ('done','resisted')`,
+          [h.id, fromDate]
+        );
+        const rate = daysFromMon + 1 > 0
+          ? Math.round(((done?.count || 0) / (daysFromMon + 1)) * 100)
+          : 0;
+        return { name: h.name, rate };
+      }));
+      const buildRates = habitRates.filter((_, i) => habits[i]?.type === 'build');
+      const bestHabit   = buildRates.length > 0
+        ? buildRates.reduce((a, b) => a.rate >= b.rate ? a : b)
+        : null;
+      const needsWork   = buildRates.length > 0
+        ? buildRates.reduce((a, b) => a.rate <= b.rate ? a : b)
+        : null;
+
+      // Top overall trigger this week
+      const triggerCounts = {};
+      for (const h of habits) {
+        try {
+          const result = await getTriggerPattern(h.id);
+          if (result?.topTrigger) {
+            triggerCounts[result.topTrigger] = (triggerCounts[result.topTrigger] || 0) + result.topCount;
+          }
+        } catch {}
+      }
+      const topTrigger = Object.keys(triggerCounts).length > 0
+        ? Object.entries(triggerCounts).sort((a, b) => b[1] - a[1])[0][0]
+        : null;
+
+      await sendWeeklyWhatsApp({
+        alterEgo,
+        weeklyRate,
+        bestHabit,
+        needsWork:      bestHabit?.name !== needsWork?.name ? needsWork : null,
+        topStreaks,
+        totalXP:        gamStats?.totalXP    || 0,
+        weekXP:         0,
+        karmaScore:     gamStats?.karmaScore || 0,
+        karmaScorePrev: 0,
+        levelInfo:      gamStats?.levelInfo,
+        topTrigger,
+        weekNumber:     Math.ceil(today.getDate() / 7),
+      });
     } catch (err) { Alert.alert('Error', err.message); }
     finally { setSendingWA(false); }
   };
@@ -140,8 +247,12 @@ const SettingsScreen = ({ navigation }) => {
     setImporting(true);
     try {
       const r = await importData();
-      if (r.success) { Alert.alert('✅ Restored', r.message); _loadSettings(); }
-      else if (r.message !== 'Cancelled') Alert.alert('Import Failed', r.message);
+      if (r.success) {
+        Alert.alert('✅ Restored', r.message);
+        _loadSettings();
+      } else if (r.message !== 'Cancelled') {
+        Alert.alert('Import Failed', r.message);
+      }
     } catch (err) { Alert.alert('Import Failed', err.message); }
     finally { setImporting(false); }
   };
@@ -149,13 +260,13 @@ const SettingsScreen = ({ navigation }) => {
   const _clearData = () => {
     Alert.alert('⚠️ Clear All Data', 'Permanently deletes everything.', [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Clear Everything', style: 'destructive',
-        onPress: async () => {
-          try { await clearAllData(); _loadSettings(); Alert.alert('Cleared', 'Start fresh, Neel.'); }
-          catch (err) { Alert.alert('Error', err.message); }
-        },
-      },
+      { text: 'Clear Everything', style: 'destructive', onPress: async () => {
+        try {
+          await clearAllData();
+          _loadSettings();
+          Alert.alert('Cleared', `Start fresh, ${alterEgo}.`);
+        } catch (err) { Alert.alert('Error', err.message); }
+      }},
     ]);
   };
 
@@ -198,7 +309,7 @@ const SettingsScreen = ({ navigation }) => {
           ) : (
             <View style={{ padding: Spacing.lg, gap: Spacing.md }}>
               <Text style={{ ...Typography.caption1, color: colors.textDim }}>Write who you are becoming. Shown every morning.</Text>
-              <TextInput style={[s.textInput, { height: 80, textAlignVertical: 'top' }]} value={tempId} onChangeText={setTempId} maxLength={120} multiline autoFocus placeholderTextColor={colors.textPlaceholder} placeholder="I am Neel. My mind holds the reins..." />
+              <TextInput style={[s.textInput, { height: 80, textAlignVertical: 'top' }]} value={tempId} onChangeText={setTempId} maxLength={120} multiline autoFocus placeholderTextColor={colors.textPlaceholder} placeholder={`I am ${alterEgo}. My mind holds the reins...`} />
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
                 <TouchableOpacity style={s.saveBtn} onPress={_saveIdentity}><Text style={s.saveBtnText}>Save Declaration</Text></TouchableOpacity>
                 <TouchableOpacity onPress={() => setEditingId(false)}><Text style={s.cancelText}>Cancel</Text></TouchableOpacity>
@@ -217,10 +328,9 @@ const SettingsScreen = ({ navigation }) => {
           </View>
         </View>
 
-        {/* ── PHASE D — TRANSFORMATION TOOLS ── */}
+        {/* TRANSFORMATION TOOLS */}
         <Text style={s.groupLabel}>TRANSFORMATION TOOLS</Text>
         <View style={s.group}>
-          {/* WFO Mode */}
           <TouchableOpacity style={s.row} onPress={() => navigation.navigate('WFOMode')}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
               <Text style={{ fontSize: 22 }}>{wfoActive ? '🏙️' : '🏡'}</Text>
@@ -230,35 +340,27 @@ const SettingsScreen = ({ navigation }) => {
               </View>
             </View>
             <View style={s.rowRight}>
-              {wfoActive && <View style={{ backgroundColor: colors.blue + '25', paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full }}>
-                <Text style={{ ...Typography.caption2, color: colors.blue, fontWeight: '700' }}>ACTIVE</Text>
-              </View>}
+              {wfoActive && (
+                <View style={{ backgroundColor: colors.blue + '25', paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full }}>
+                  <Text style={{ ...Typography.caption2, color: colors.blue, fontWeight: '700' }}>ACTIVE</Text>
+                </View>
+              )}
               <Text style={s.rowArrow}>›</Text>
             </View>
           </TouchableOpacity>
           <View style={s.separator} />
-
-          {/* Neural Progress */}
           <TouchableOpacity style={s.row} onPress={() => navigation.navigate('NeuralProgress')}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
               <Text style={{ fontSize: 22 }}>🧠</Text>
-              <View>
-                <Text style={s.rowLabel}>Neural Rewiring</Text>
-                <Text style={s.rowDesc}>66-day pathway progress per habit</Text>
-              </View>
+              <View><Text style={s.rowLabel}>Neural Rewiring</Text><Text style={s.rowDesc}>66-day pathway progress per habit</Text></View>
             </View>
             <Text style={s.rowArrow}>›</Text>
           </TouchableOpacity>
           <View style={s.separator} />
-
-          {/* Before vs Now */}
           <TouchableOpacity style={s.row} onPress={() => navigation.navigate('BeforeNow')}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
               <Text style={{ fontSize: 22 }}>📊</Text>
-              <View>
-                <Text style={s.rowLabel}>Before vs Now</Text>
-                <Text style={s.rowDesc}>90-day transformation — unlocks at 90 days</Text>
-              </View>
+              <View><Text style={s.rowLabel}>Before vs Now</Text><Text style={s.rowDesc}>90-day transformation — unlocks at 90 days</Text></View>
             </View>
             <Text style={s.rowArrow}>›</Text>
           </TouchableOpacity>
@@ -276,7 +378,7 @@ const SettingsScreen = ({ navigation }) => {
           </View>
         </View>
 
-        {/* NOTIFICATIONS */}
+        {/* REMINDERS */}
         <Text style={s.groupLabel}>REMINDERS</Text>
         <View style={s.group}>
           <View style={s.row}>
@@ -312,7 +414,14 @@ const SettingsScreen = ({ navigation }) => {
         {/* DATA */}
         <Text style={s.groupLabel}>DATA & BACKUP</Text>
         <View style={s.group}>
-          {backupInfo && <><View style={s.backupInfoRow}><Text style={s.backupInfoText}>{backupInfo.habitCount} habits · {backupInfo.entryCount} entries · ~{backupInfo.sizeKB}KB</Text></View><View style={s.separator} /></>}
+          {backupInfo && (
+            <>
+              <View style={s.backupInfoRow}>
+                <Text style={s.backupInfoText}>{backupInfo.habitCount} habits · {backupInfo.entryCount} entries · ~{backupInfo.sizeKB}KB</Text>
+              </View>
+              <View style={s.separator} />
+            </>
+          )}
           <TouchableOpacity style={s.row} onPress={_export} disabled={exporting}>
             <View><Text style={s.rowLabel}>{exporting ? 'Exporting...' : 'Export Backup'}</Text><Text style={s.rowDesc}>Save as JSON</Text></View>
             {exporting ? <ActivityIndicator size="small" color={colors.gold} /> : <Text style={[s.rowArrow, { color: colors.gold }]}>↑</Text>}
@@ -359,27 +468,27 @@ const SettingsScreen = ({ navigation }) => {
 };
 
 const makeStyles = (colors) => StyleSheet.create({
-  screen:        { flex: 1, backgroundColor: colors.background },
-  header:        { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.separator },
-  headerTitle:   { ...Typography.title2, color: colors.textPrimary },
-  scroll:        { flex: 1 },
-  scrollContent: { paddingVertical: Spacing.xl },
-  groupLabel:    { ...Typography.caption2, color: colors.textDim, letterSpacing: 1.5, marginHorizontal: Spacing.xl, marginBottom: Spacing.xs, marginTop: Spacing.lg },
-  group:         { backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, marginHorizontal: Spacing.xl, overflow: 'hidden', borderWidth: 1, borderColor: colors.separator },
-  separator:     { height: 1, backgroundColor: colors.separator, marginHorizontal: Spacing.lg },
-  row:           { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.lg, minHeight: 54 },
-  rowLabel:      { ...Typography.callout, color: colors.textPrimary },
-  rowDesc:       { ...Typography.caption1, color: colors.textDim, marginTop: 3 },
-  rowRight:      { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  rowValue:      { ...Typography.callout, color: colors.textMuted },
-  rowArrow:      { ...Typography.title3, color: colors.textDim, fontWeight: '300' },
-  editRow:       { flexDirection: 'row', alignItems: 'center', padding: Spacing.md, gap: Spacing.sm },
-  textInput:     { flex: 1, ...Typography.callout, color: colors.textPrimary, backgroundColor: colors.backgroundElevated, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2, borderWidth: 1, borderColor: colors.separator },
-  saveBtn:       { backgroundColor: colors.gold, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 10 },
-  saveBtnText:   { ...Typography.footnote, color: '#000', fontWeight: '700' },
-  cancelText:    { ...Typography.footnote, color: colors.textMuted },
-  backupInfoRow: { backgroundColor: colors.goldAlpha15, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
-  backupInfoText:{ ...Typography.caption1, color: colors.gold },
+  screen:         { flex: 1, backgroundColor: colors.background },
+  header:         { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.separator },
+  headerTitle:    { ...Typography.title2, color: colors.textPrimary },
+  scroll:         { flex: 1 },
+  scrollContent:  { paddingVertical: Spacing.xl },
+  groupLabel:     { ...Typography.caption2, color: colors.textDim, letterSpacing: 1.5, marginHorizontal: Spacing.xl, marginBottom: Spacing.xs, marginTop: Spacing.lg },
+  group:          { backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, marginHorizontal: Spacing.xl, overflow: 'hidden', borderWidth: 1, borderColor: colors.separator },
+  separator:      { height: 1, backgroundColor: colors.separator, marginHorizontal: Spacing.lg },
+  row:            { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.lg, minHeight: 54 },
+  rowLabel:       { ...Typography.callout, color: colors.textPrimary },
+  rowDesc:        { ...Typography.caption1, color: colors.textDim, marginTop: 3 },
+  rowRight:       { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  rowValue:       { ...Typography.callout, color: colors.textMuted },
+  rowArrow:       { ...Typography.title3, color: colors.textDim, fontWeight: '300' },
+  editRow:        { flexDirection: 'row', alignItems: 'center', padding: Spacing.md, gap: Spacing.sm },
+  textInput:      { flex: 1, ...Typography.callout, color: colors.textPrimary, backgroundColor: colors.backgroundElevated, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2, borderWidth: 1, borderColor: colors.separator },
+  saveBtn:        { backgroundColor: colors.gold, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 10 },
+  saveBtnText:    { ...Typography.footnote, color: '#000', fontWeight: '700' },
+  cancelText:     { ...Typography.footnote, color: colors.textMuted },
+  backupInfoRow:  { backgroundColor: colors.goldAlpha15, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
+  backupInfoText: { ...Typography.caption1, color: colors.gold },
 });
 
 export default SettingsScreen;
