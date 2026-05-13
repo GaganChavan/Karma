@@ -1,9 +1,9 @@
-// ─── KARMA APP — ROOT (PHASE E) ──────────────────────────────────────
-// Phase E additions:
-// - runAutoSkip() after DB init — marks yesterday's unlogged habits
-// - _wasScheduledOn() fixed: comma-separated days + correct day numbering
-// - Auto-skip toast: Alert if habits were missed without logging
-// - Everything else identical to Phase C
+// ─── KARMA APP — ROOT (PHASE F-1) ────────────────────────────────────
+// Phase F-1 additions:
+// - SIP migration flow: SPLASH → IDENTITY → SIP_MIGRATION (once) → APP
+// - Auto-skip XP updated to -2 (from -3)
+// - Auto-skip toast updated (was "3 XP", now "2 XP per habit")
+// - Everything else identical to Phase E
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Alert }                    from 'react-native';
@@ -14,6 +14,7 @@ import * as Notifications           from 'expo-notifications';
 import ErrorBoundary                from './src/components/ErrorBoundary';
 import SplashScreen                 from './src/screens/SplashScreen';
 import IdentityScreen               from './src/screens/IdentityScreen';
+import SIPMigrationScreen           from './src/screens/SIPMigrationScreen';
 import AppNavigator                 from './src/navigation/AppNavigator';
 import { ThemeProvider, useTheme, updateStaticColors } from './src/constants/ThemeContext';
 import { configureNotifications, scheduleAllHabitNotifications } from './src/services/notificationService';
@@ -28,11 +29,15 @@ import { deductAutoSkipXP }         from './src/services/gamificationService';
 
 configureNotifications();
 
-const PHASE = { SPLASH: 'splash', IDENTITY: 'identity', APP: 'app' };
+const PHASE = {
+  SPLASH:         'splash',
+  IDENTITY:       'identity',
+  SIP_MIGRATION:  'sip_migration',  // Phase F-1: one-time SIP categorisation
+  APP:            'app',
+};
 
-// ── Phase E: Auto-skip helpers ────────────────────────────────────────
+// ── Auto-skip helpers ─────────────────────────────────────────────────
 
-// Returns yesterday's date as YYYY-MM-DD string
 const _getYesterdayStr = () => {
   const d = new Date();
   d.setDate(d.getDate() - 1);
@@ -42,76 +47,58 @@ const _getYesterdayStr = () => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
-// Returns true if a habit was scheduled to run on dateStr.
-// FIX: days stored as comma-separated '1,2,3,4,5,6,7'
-//      app format: 1=Mon, 2=Tue ... 6=Sat, 7=Sun
-//      getDay() returns: 0=Sun, 1=Mon ... 6=Sat
-//      conversion: getDay()===0 → appDay=7, else appDay=getDay()
+// days stored as comma-separated '1,2,3,4,5,6,7' (1=Mon...7=Sun, app format)
+// getDay() returns 0=Sun...6=Sat → convert: 0→7, else keep
 const _wasScheduledOn = (habit, dateStr) => {
   if (habit.frequency === 'daily') return true;
-
   if (habit.frequency === 'specific_days') {
     try {
       const days = habit.days;
       if (!days) return false;
       const scheduledDays = days.split(',').map(s => parseInt(s.trim(), 10));
-      const jsDay  = new Date(dateStr + 'T00:00:00').getDay(); // 0=Sun..6=Sat
-      const appDay = jsDay === 0 ? 7 : jsDay;                  // 1=Mon..7=Sun
+      const jsDay  = new Date(dateStr + 'T00:00:00').getDay();
+      const appDay = jsDay === 0 ? 7 : jsDay;
       return scheduledDays.includes(appDay);
     } catch { return false; }
   }
-
-  // Weekly (X/week) — can't determine which specific day was required
   return false;
 };
 
-// Scans yesterday's habits. Marks unlogged ones as auto_skipped and deducts 3 XP.
-// Returns count of habits that were auto-skipped (for the toast).
-// INSERT OR IGNORE guarantees existing checkins (done/missed/etc) are NEVER touched.
 const runAutoSkip = async () => {
   try {
     const yesterday = _getYesterdayStr();
-    const habits    = await getHabitsForAutoSkip(); // active + not paused
+    const habits    = await getHabitsForAutoSkip();
     let skippedCount = 0;
     const skippedNames = [];
 
     for (const habit of habits) {
       if (!_wasScheduledOn(habit, yesterday)) continue;
-      // WFO-skip habits handled by wfoService — don't double-insert
       if (habit.is_wfo_skip === 1) continue;
-      // Already has a checkin — don't touch
       const existing = await getCheckinForDate(habit.id, yesterday);
       if (existing) continue;
-      // Nothing logged — auto_skip + deduct XP
       await insertAutoSkipCheckin(habit.id, yesterday);
-      await deductAutoSkipXP(habit.id, yesterday);
+      await deductAutoSkipXP(habit.id, yesterday);  // -2 XP (Phase F-1)
       skippedCount++;
       skippedNames.push(habit.name);
     }
 
-    if (skippedCount > 0) {
-      console.log(`⚠️ Phase E: auto-skipped ${skippedCount} habit(s) for ${yesterday}`);
-    }
-
     return { skippedCount, skippedNames };
   } catch (e) {
-    console.warn('runAutoSkip error:', e.message);
+    console.warn('runAutoSkip:', e.message);
     return { skippedCount: 0, skippedNames: [] };
   }
 };
 
-// ── Inner component (has access to ThemeProvider) ─────────────────────
+// ── Inner component ───────────────────────────────────────────────────
 
-const AppInner = ({ autoSkipResult }) => {
+const AppInner = ({ autoSkipResult, needsSIPMigration, onSIPComplete }) => {
   const { colors, isDark, toggleTheme } = useTheme();
   const [phase,  setPhase]  = useState(PHASE.SPLASH);
-  const navRef               = useRef(null);
-  const responseListenerRef  = useRef(null);
-  const toastShownRef        = useRef(false);
+  const navRef              = useRef(null);
+  const responseListenerRef = useRef(null);
+  const toastShownRef       = useRef(false);
 
-  useEffect(() => {
-    updateStaticColors(colors);
-  }, [colors]);
+  useEffect(() => { updateStaticColors(colors); }, [colors]);
 
   useEffect(() => {
     responseListenerRef.current = Notifications.addNotificationResponseReceivedListener(
@@ -122,7 +109,7 @@ const AppInner = ({ autoSkipResult }) => {
             navRef.current.navigate('HabitDetail', { habitId: data.habitId });
           }
         } catch (err) {
-          console.warn('Notification tap error:', err.message);
+          console.warn('Notification tap:', err.message);
         }
       }
     );
@@ -134,34 +121,41 @@ const AppInner = ({ autoSkipResult }) => {
   }, []);
 
   const _handleSplashReady = async () => {
-    try {
-      await scheduleAllHabitNotifications();
-    } catch (err) {
-      console.warn('Could not schedule notifications:', err.message);
-    }
+    try { await scheduleAllHabitNotifications(); } catch {}
     setPhase(PHASE.IDENTITY);
   };
 
-  const _handleIdentityDismiss = () => {
+  const _enterApp = () => {
     setPhase(PHASE.APP);
-
-    // Show auto-skip accountability toast AFTER entering the app
-    // Only once per session, only if there were actual auto-skips
+    // Auto-skip accountability toast — once per session
     if (!toastShownRef.current && autoSkipResult?.skippedCount > 0) {
       toastShownRef.current = true;
       const { skippedCount, skippedNames } = autoSkipResult;
-      const xpLost = skippedCount * 3;
+      const xpLost   = skippedCount * 2;  // -2 XP per auto-skip (Phase F-1)
       const habitList = skippedNames.slice(0, 3).join(', ') +
         (skippedNames.length > 3 ? ` +${skippedNames.length - 3} more` : '');
-
       setTimeout(() => {
         Alert.alert(
           '⚠️ Yesterday — Not Logged',
           `${skippedCount} habit${skippedCount > 1 ? 's' : ''} had no log yesterday:\n\n${habitList}\n\n-${xpLost} XP deducted.\n\nLog your habits daily. Krishna watches.`,
-          [{ text: 'Acknowledged', style: 'default' }]
+          [{ text: 'Acknowledged' }]
         );
-      }, 800); // slight delay so home screen loads first
+      }, 800);
     }
+  };
+
+  const _handleIdentityDismiss = () => {
+    // Phase F-1: show SIP migration if needed, otherwise go straight to app
+    if (needsSIPMigration) {
+      setPhase(PHASE.SIP_MIGRATION);
+    } else {
+      _enterApp();
+    }
+  };
+
+  const _handleSIPComplete = () => {
+    onSIPComplete();
+    _enterApp();
   };
 
   const navTheme = {
@@ -192,6 +186,11 @@ const AppInner = ({ autoSkipResult }) => {
         <IdentityScreen onDismiss={_handleIdentityDismiss} />
       )}
 
+      {/* Phase F-1: one-time SIP category assignment */}
+      {phase === PHASE.SIP_MIGRATION && (
+        <SIPMigrationScreen onComplete={_handleSIPComplete} />
+      )}
+
       {phase === PHASE.APP && (
         <NavigationContainer theme={navTheme} ref={navRef}>
           <AppNavigator toggleTheme={toggleTheme} />
@@ -201,27 +200,36 @@ const AppInner = ({ autoSkipResult }) => {
   );
 };
 
-// ── Root — init DB, run auto-skip, load theme, then render ────────────
+// ── Root ──────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [initialTheme,    setInitialTheme]    = useState(null);
-  const [autoSkipResult,  setAutoSkipResult]  = useState(null);
+  const [initialTheme,      setInitialTheme]      = useState(null);
+  const [autoSkipResult,    setAutoSkipResult]    = useState(null);
+  const [needsSIPMigration, setNeedsSIPMigration] = useState(false);
 
-  useEffect(() => {
-    _initApp();
-  }, []);
+  useEffect(() => { _initApp(); }, []);
 
   const _initApp = async () => {
     try {
-      // 1. Init DB — runs all migrations including Phase E is_paused + checkins rebuild
+      // 1. Init DB — runs all Phase F-1 migrations including XP v2 recalculation
       await getDatabase();
 
-      // 2. Phase E: Auto-skip scan for yesterday
-      //    Runs after DB ready, result shown after identity screen dismisses
+      // 2. Auto-skip scan for yesterday
       const result = await runAutoSkip();
       setAutoSkipResult(result);
 
-      // 3. Load saved theme
+      // 3. Check if SIP migration needed (existing habits with no category)
+      const sipDone = await getSetting('sip_migration_done');
+      if (sipDone !== 'true') {
+        const { getDatabase: getDB } = require('./src/database/database');
+        const db     = await getDB();
+        const unhcategorised = await db.getFirstAsync(
+          "SELECT id FROM habits WHERE is_active = 1 AND category IS NULL LIMIT 1"
+        );
+        setNeedsSIPMigration(!!unhcategorised);
+      }
+
+      // 4. Load saved theme
       const saved = await getSetting('app_theme');
       setInitialTheme(saved || 'dark');
     } catch {
@@ -230,14 +238,17 @@ export default function App() {
     }
   };
 
-  // Wait until theme loaded to avoid flash
   if (!initialTheme) return null;
 
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
         <ThemeProvider initialTheme={initialTheme}>
-          <AppInner autoSkipResult={autoSkipResult} />
+          <AppInner
+            autoSkipResult={autoSkipResult}
+            needsSIPMigration={needsSIPMigration}
+            onSIPComplete={() => setNeedsSIPMigration(false)}
+          />
         </ThemeProvider>
       </SafeAreaProvider>
     </ErrorBoundary>

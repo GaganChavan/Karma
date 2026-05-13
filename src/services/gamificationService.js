@@ -1,25 +1,89 @@
-// ─── KARMA APP — GAMIFICATION SERVICE (PHASE E) ─────────────────────
-// Phase E changes:
-// - awardXP: removed Math.max(0) — XP can go negative
-// - getKarmaScore: excludes paused habits (AND is_paused = 0)
-// - checkPerfectDay: excludes paused habits
-// - NEW: deductAutoSkipXP — -3 XP for auto_skipped checkins
+// ─── KARMA APP — GAMIFICATION SERVICE (PHASE F-1) ────────────────────
+// Phase F-1 complete rewrite:
+// - New XP values: done=+1, resisted=+2, skipped=-1, missed=-2, slip=-5, auto_skipped=-2, perfect=+5
+// - Karma Score: per-habit actual days, WFO skips excluded from denominator
+// - Karma Titles based on Score (Seeker→Dhruv) — NOT XP-based levels
+// - Journey Badges: overall achievement badges (separate from per-habit milestones)
+// - LEVELS kept as secondary XP tracking (not homescreen title)
+// - checkPerfectDay: respects WFO mode
 
-import { getDatabase } from '../database/database';
+import { getDatabase }          from '../database/database';
 import { getSetting, setSetting } from '../database/habitService';
 
-// ── LEVEL SYSTEM ──────────────────────────────────────────────────────
+// ── APP BIRTH DATE ────────────────────────────────────────────────────
+const APP_BIRTH = '2026-05-01';
 
+// ── NEW XP VALUES (Phase F-1) ─────────────────────────────────────────
+export const XP_VALUES = {
+  habit_done:        1,
+  habit_resisted:    2,
+  habit_undo_done:  -1,
+  habit_undo_resist:-2,
+  skipped:          -1,   // intentional skip
+  auto_skipped:     -2,   // forgot to log — system marked it
+  missed:           -2,   // explicit miss
+  slip:             -5,   // did the habit you were avoiding
+  wfo_skipped:       0,   // WFO system skip — no penalty
+  perfect_day:       5,
+  // Per-habit milestone XP
+  milestone_3:       3,
+  milestone_7:       5,
+  milestone_14:      8,
+  milestone_21:     10,
+  milestone_30:     15,
+  milestone_48:     10,
+  milestone_60:     20,
+  milestone_75:     15,
+  milestone_90:     30,
+  milestone_180:    50,
+  milestone_365:   100,
+};
+
+// ── KARMA TITLES (based on Karma Score 0–1000) ─────────────────────────
+// These are the primary homescreen titles.
+// Note: names deliberately different from habit milestone titles and journey badge titles.
+export const KARMA_TITLES = [
+  { minScore:    0, title: 'Seeker',       icon: '🌱', color: '#8E8E93' },
+  { minScore:  100, title: 'Awakening',    icon: '🔥', color: '#FF9F0A' },
+  { minScore:  200, title: 'Consistent',   icon: '⭐', color: '#30D158' },
+  { minScore:  400, title: 'Disciplined',  icon: '⚔️', color: '#0A84FF' },
+  { minScore:  600, title: 'Unstoppable',  icon: '⚡', color: '#BF5AF2' },
+  { minScore:  800, title: 'Transcendent', icon: '🔱', color: '#FFD700' },
+  { minScore: 1000, title: 'Dhruv',        icon: '👑', color: '#FFD700' },
+];
+
+export const getKarmaTitle = (karmaScore) => {
+  const score = Math.max(0, karmaScore || 0);
+  let current = KARMA_TITLES[0];
+  for (const t of KARMA_TITLES) {
+    if (score >= t.minScore) current = t;
+  }
+  const next = KARMA_TITLES.find(t => t.minScore > score) || null;
+  const progress = next
+    ? (score - current.minScore) / (next.minScore - current.minScore)
+    : 1;
+  return {
+    ...current,
+    nextTitle: next,
+    progress:  Math.min(1, Math.max(0, progress)),
+    score,
+  };
+};
+
+// ── LEGACY LEVELS (secondary, XP-based) ───────────────────────────────
+// Kept for the XP section in Stats. Not shown as homescreen title.
 export const LEVELS = [
-  { level: 1, title: 'Beginner',     minXP: 0,    icon: '🌱', color: '#667799' },
-  { level: 2, title: 'Consistent',   minXP: 100,  icon: '🔥', color: '#00D4AA' },
-  { level: 3, title: 'Disciplined',  minXP: 300,  icon: '⭐', color: '#1E7FFF' },
-  { level: 4, title: 'Unstoppable',  minXP: 700,  icon: '⚡', color: '#FFB347' },
-  { level: 5, title: 'Legend',       minXP: 1500, icon: '🔱', color: '#FFD700' },
+  { level: 1, title: 'Seedling',    minXP:    0, icon: '🌱', color: '#8E8E93' },
+  { level: 2, title: 'Kindled',     minXP:   50, icon: '🕯️', color: '#FF9F0A' },
+  { level: 3, title: 'Practitioner',minXP:  200, icon: '📿', color: '#30D158' },
+  { level: 4, title: 'Sadhaka',     minXP:  500, icon: '🧘', color: '#0A84FF' },
+  { level: 5, title: 'Warrior',     minXP: 1000, icon: '⚔️', color: '#BF5AF2' },
+  { level: 6, title: 'Yogi',        minXP: 2500, icon: '🔱', color: '#FFD700' },
+  { level: 7, title: 'Akash',       minXP: 5000, icon: '👑', color: '#FFD700' },
 ];
 
 export const getLevelFromXP = (xp) => {
-  const totalXP = xp || 0; // Allow negative — no clamp
+  const totalXP = xp || 0;
   let currentLevel = LEVELS[0];
   for (const lvl of LEVELS) {
     if (totalXP >= lvl.minXP) currentLevel = lvl;
@@ -28,115 +92,108 @@ export const getLevelFromXP = (xp) => {
   const progress = nextLevel
     ? (Math.max(0, totalXP) - currentLevel.minXP) / (nextLevel.minXP - currentLevel.minXP)
     : 1;
-  return { ...currentLevel, nextLevel, progress: Math.min(1, Math.max(0, progress)), totalXP };
+  return {
+    ...currentLevel,
+    nextLevel,
+    progress: Math.min(1, Math.max(0, progress)),
+    totalXP,
+  };
 };
 
-// ── XP VALUES ────────────────────────────────────────────────────────
+// ── CHECKIN XP CALCULATOR (single source of truth) ────────────────────
+// Handles all status transitions. Used by checkIn AND editPastCheckin.
+// Returns the XP delta for changing from previousStatus to newStatus.
+export const calculateCheckinXP = (previousStatus, newStatus) => {
+  if (previousStatus === newStatus) return 0;
 
-export const XP_VALUES = {
-  habit_done:       10,
-  habit_resisted:   15,
-  habit_undo_done:  -10,
-  habit_undo_resist:-15,
-  perfect_day:      20,
-  auto_skipped:     -3,   // Phase E: forgot to log
-  milestone_3:      15,
-  milestone_7:      25,
-  milestone_14:     35,
-  milestone_21:     50,
-  milestone_30:     75,
-  milestone_48:     50,
-  milestone_60:     100,
-  milestone_75:     75,
-  milestone_90:     150,
-  milestone_180:    200,
-  milestone_365:    500,
+  const getBaseXP = (status) => {
+    switch (status) {
+      case 'done':         return XP_VALUES.habit_done;       // +1
+      case 'resisted':     return XP_VALUES.habit_resisted;   // +2
+      case 'missed':       return XP_VALUES.missed;           // -2
+      case 'slip':         return XP_VALUES.slip;             // -5
+      case 'skipped':      return XP_VALUES.skipped;          // -1
+      case 'auto_skipped': return XP_VALUES.auto_skipped;     // -2
+      default:             return 0;
+    }
+  };
+
+  const prevXP = previousStatus ? getBaseXP(previousStatus) : 0;
+  const newXP  = newStatus      ? getBaseXP(newStatus)      : 0;
+
+  return newXP - prevXP;
 };
 
-// ── AWARD / DEDUCT XP ────────────────────────────────────────────────
-
-// Phase E: Removed Math.max(0, ...) — XP can go negative
-export const awardXP = async (amount, reason) => {
+// ── AWARD XP ──────────────────────────────────────────────────────────
+// XP can go negative — no floor applied anywhere.
+export const awardXP = async (amount, reason, habitId = null) => {
   if (!amount || amount === 0) return 0;
   try {
     const db = await getDatabase();
     const current = await getSetting('total_xp');
     const currentXP = parseInt(current || '0');
-    const newXP = currentXP + amount; // No floor — negative is allowed
+    const newXP = currentXP + amount;
     await setSetting('total_xp', String(newXP));
     await db.runAsync(
-      'INSERT INTO xp_log (xp, reason, date) VALUES (?, ?, datetime("now","localtime"))',
-      [amount, reason || 'XP awarded']
+      'INSERT INTO xp_log (habit_id, xp, reason, date) VALUES (?, ?, ?, datetime("now","localtime"))',
+      [habitId, amount, reason || 'XP']
     );
-    console.log(`⚡ XP: ${amount > 0 ? '+' : ''}${amount} (${reason}) → total: ${newXP}`);
+    console.log(`⚡ XP: ${amount > 0 ? '+' : ''}${amount} → ${newXP}`);
     return newXP;
-  } catch (error) {
-    console.warn('awardXP error:', error.message);
+  } catch (e) {
+    console.warn('awardXP:', e.message);
     return 0;
   }
 };
 
-// Phase E: Deduct 3 XP for auto_skipped checkins (forgot to log)
+// Deduct XP for auto-skipped habits (called from App.js runAutoSkip)
 export const deductAutoSkipXP = async (habitId, date) => {
   try {
-    const db = await getDatabase();
-    const habitData = await db.getFirstAsync('SELECT name FROM habits WHERE id = ?', [habitId]);
-    const habitName = habitData?.name || `Habit #${habitId}`;
+    const db       = await getDatabase();
+    const habitRow = await db.getFirstAsync('SELECT name FROM habits WHERE id = ?', [habitId]);
+    const name     = habitRow?.name || `Habit #${habitId}`;
 
     await db.runAsync(
-      `INSERT INTO xp_log (habit_id, xp, reason, date) VALUES (?, ?, ?, ?)`,
-      [habitId, XP_VALUES.auto_skipped, `Auto-skipped: ${habitName}`, date]
+      'INSERT INTO xp_log (habit_id, xp, reason, date) VALUES (?, ?, ?, ?)',
+      [habitId, XP_VALUES.auto_skipped, `Auto-skipped: ${name}`, date]
     );
 
     const current = await getSetting('total_xp');
-    const currentXP = parseInt(current || '0');
-    const newXP = currentXP + XP_VALUES.auto_skipped; // -3, no floor
+    const newXP   = parseInt(current || '0') + XP_VALUES.auto_skipped;
     await setSetting('total_xp', String(newXP));
 
-    console.log(`⚠️ Auto-skip XP: ${XP_VALUES.auto_skipped} for "${habitName}" on ${date} → total: ${newXP}`);
+    console.log(`⚠️ Auto-skip XP ${XP_VALUES.auto_skipped} for "${name}" on ${date} → ${newXP}`);
   } catch (e) {
-    console.warn('deductAutoSkipXP error:', e.message);
-    // Never crash app for XP deduction
+    console.warn('deductAutoSkipXP:', e.message);
   }
 };
 
-// ── CHECKIN XP — called from checkIn function ─────────────────────────
-
-export const calculateCheckinXP = (previousStatus, newStatus) => {
-  const wasDone = previousStatus === 'done';
-  const wasResisted = previousStatus === 'resisted';
-  const nowDone = newStatus === 'done';
-  const nowResisted = newStatus === 'resisted';
-
-  if (nowDone && !wasDone && !wasResisted)       return XP_VALUES.habit_done;
-  if (nowResisted && !wasDone && !wasResisted)    return XP_VALUES.habit_resisted;
-  if (!nowDone && !nowResisted && wasDone)        return XP_VALUES.habit_undo_done;
-  if (!nowDone && !nowResisted && wasResisted)    return XP_VALUES.habit_undo_resist;
-  return 0;
-};
-
 // ── PERFECT DAY CHECK ─────────────────────────────────────────────────
-// Phase E: Excludes paused habits from the count
-
+// Phase F-1: Respects WFO mode — WFO-skip habits not required
 export const checkPerfectDay = async () => {
   try {
-    const db = await getDatabase();
-    const today = new Date().toISOString().split('T')[0];
+    const db      = await getDatabase();
+    const today   = new Date().toISOString().split('T')[0];
+    const wfoMode = (await getSetting('wfo_mode')) === 'true';
 
-    // Phase E: only count active non-paused habits
-    const totalHabits = await db.getFirstAsync(
-      "SELECT COUNT(*) as count FROM habits WHERE is_active = 1 AND is_paused = 0"
-    );
-    if (!totalHabits?.count || totalHabits.count === 0) return false;
+    // Required habits: active, non-paused; in WFO mode exclude is_wfo_skip
+    const requiredHabits = await db.getAllAsync(
+      `SELECT id FROM habits WHERE is_active = 1 AND is_paused = 0 ${wfoMode ? 'AND is_wfo_skip = 0' : ''}`
+    ) || [];
 
-    const doneToday = await db.getFirstAsync(
-      `SELECT COUNT(*) as count FROM checkins
-       WHERE date = ? AND status IN ('done','resisted')`,
-      [today]
-    );
-    return (doneToday?.count || 0) >= totalHabits.count;
-  } catch (error) {
-    console.warn('checkPerfectDay error:', error.message);
+    if (requiredHabits.length === 0) return false;
+
+    // Every required habit must have done/resisted today
+    for (const h of requiredHabits) {
+      const c = await db.getFirstAsync(
+        'SELECT status FROM checkins WHERE habit_id = ? AND date = ?',
+        [h.id, today]
+      );
+      if (c?.status !== 'done' && c?.status !== 'resisted') return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('checkPerfectDay:', e.message);
     return false;
   }
 };
@@ -144,42 +201,44 @@ export const checkPerfectDay = async () => {
 export const awardPerfectDayIfEligible = async () => {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const lastPerfect = await getSetting('last_perfect_day');
-    if (lastPerfect === today) return false;
+    const last  = await getSetting('last_perfect_day');
+    if (last === today) return false;
     const isPerfect = await checkPerfectDay();
     if (!isPerfect) return false;
     await awardXP(XP_VALUES.perfect_day, 'Perfect day — all habits complete!');
     await setSetting('last_perfect_day', today);
-    console.log('🌟 Perfect day bonus awarded!');
+
+    // Check journey badges after perfect day
+    await checkAndAwardJourneyBadges();
+
     return true;
-  } catch (error) {
-    console.warn('awardPerfectDayIfEligible error:', error.message);
+  } catch (e) {
+    console.warn('awardPerfectDayIfEligible:', e.message);
     return false;
   }
 };
 
-// ── MILESTONES ────────────────────────────────────────────────────────
-
+// ── PER-HABIT MILESTONES ──────────────────────────────────────────────
 export const MILESTONE_DAYS = [3, 7, 14, 21, 30, 48, 60, 75, 90, 180, 365];
 
 export const MILESTONE_INFO = {
-  3:   { badge: '🌱', title: 'Seed Planted',     desc: 'The journey of 1000 days begins.' },
-  7:   { badge: '🔥', title: 'One Week',          desc: 'Seven sunrises. Seven choices. Unbroken.' },
-  14:  { badge: '⭐', title: "Dhruv's Path",      desc: 'The Pole Star watched every day.' },
-  21:  { badge: '🧠', title: 'Neural Rewired',    desc: 'Science says your brain is changing.' },
-  30:  { badge: '🏆', title: 'Month of Karma',    desc: 'One month. The sky has witnessed it all.' },
-  48:  { badge: '⚡', title: 'Beyond Comfort',    desc: 'Top 5%. Most quit before this.' },
-  60:  { badge: '🌊', title: 'Pisces Depth',      desc: 'Quiet. Persistent. Unstoppable.' },
-  75:  { badge: '⚔️', title: "Warrior's Rest",    desc: "The hardest phase. You're still here." },
-  90:  { badge: '🔱', title: 'Identity Shift',    desc: 'This is no longer a habit. This is you.' },
-  180: { badge: '🌌', title: 'Half a Year',       desc: 'Six months of pure karma.' },
-  365: { badge: '👑', title: 'Akash — The Limitless', desc: 'The sky was always yours, Neel.' },
+  3:   { badge: '🌱', title: 'Seed Planted',          desc: 'The journey of 1000 days begins.' },
+  7:   { badge: '🔥', title: 'One Week',               desc: 'Seven sunrises. Seven choices. Unbroken.' },
+  14:  { badge: '⭐', title: "Dhruv's Path",           desc: 'The Pole Star watched every day.' },
+  21:  { badge: '🧠', title: 'Neural Rewired',         desc: 'Science says your brain is changing.' },
+  30:  { badge: '🏆', title: 'Month of Karma',         desc: 'One month. The sky has witnessed it all.' },
+  48:  { badge: '⚡', title: 'Beyond Comfort',         desc: 'Top 5%. Most quit before this.' },
+  60:  { badge: '🌊', title: 'Pisces Depth',           desc: 'Quiet. Persistent. Unstoppable.' },
+  75:  { badge: '⚔️', title: "Warrior's Rest",         desc: "The hardest phase. You're still here." },
+  90:  { badge: '🔱', title: 'Identity Shift',         desc: 'This is no longer a habit. This is you.' },
+  180: { badge: '🌌', title: 'Half a Year',            desc: 'Six months of pure karma.' },
+  365: { badge: '👑', title: 'Akash — The Limitless', desc: 'The sky was always yours, Gagan.' },
 };
 
 export const checkMilestone = async (habitId, currentStreak) => {
   if (!MILESTONE_DAYS.includes(currentStreak)) return null;
   try {
-    const db = await getDatabase();
+    const db       = await getDatabase();
     const existing = await db.getFirstAsync(
       'SELECT id FROM milestones WHERE habit_id = ? AND milestone_days = ?',
       [habitId, currentStreak]
@@ -191,18 +250,15 @@ export const checkMilestone = async (habitId, currentStreak) => {
       [habitId, currentStreak]
     );
 
-    const xpKey = `milestone_${currentStreak}`;
-    const xp = XP_VALUES[xpKey] || 25;
-    await awardXP(xp, `${currentStreak}-day milestone on habit #${habitId}`);
+    const xp = XP_VALUES[`milestone_${currentStreak}`] || 3;
+    await awardXP(xp, `${currentStreak}-day milestone`, habitId);
 
-    console.log(`🏆 Milestone: ${currentStreak} days for habit ${habitId} → +${xp} XP`);
-    return {
-      days: currentStreak,
-      xp,
-      ...MILESTONE_INFO[currentStreak],
-    };
-  } catch (error) {
-    console.warn('checkMilestone error:', error.message);
+    // Check journey badges (e.g., The Yogi requires all habits streaking)
+    await checkAndAwardJourneyBadges();
+
+    return { days: currentStreak, xp, ...MILESTONE_INFO[currentStreak] };
+  } catch (e) {
+    console.warn('checkMilestone:', e.message);
     return null;
   }
 };
@@ -214,105 +270,322 @@ export const getHabitMilestones = async (habitId) => {
       'SELECT * FROM milestones WHERE habit_id = ? ORDER BY milestone_days ASC',
       [habitId]
     ) || [];
-  } catch (error) {
-    return [];
-  }
+  } catch { return []; }
 };
 
-// ── KARMA SCORE (0 – 1000) ────────────────────────────────────────────
-// Phase E: Excludes paused habits from denominator
-
+// ── KARMA SCORE (0–1000) ──────────────────────────────────────────────
+// Phase F-1 formula: per-habit actual days, skipped days excluded from denominator
+// Skipped days (WFO or intentional) = user chose to skip, don't penalise
+// Formula: avg of (done/possible) per habit × 1000
 export const getKarmaScore = async () => {
   try {
-    const db = await getDatabase();
-    const today = new Date();
-    const dates = [];
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      dates.push(d.toISOString().split('T')[0]);
+    const db       = await getDatabase();
+    const today    = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    // 30-day window start
+    const winStart = new Date(today);
+    winStart.setDate(today.getDate() - 29);
+    const winStartStr = winStart.toISOString().split('T')[0];
+    const effectiveWindowStart = winStartStr > APP_BIRTH ? winStartStr : APP_BIRTH;
+
+    const habits = await db.getAllAsync(
+      "SELECT id, created_at FROM habits WHERE is_active = 1 AND is_paused = 0"
+    ) || [];
+
+    if (habits.length === 0) return 0;
+
+    let totalPossible = 0;
+    let totalDone     = 0;
+
+    for (const habit of habits) {
+      const habitBirth = (habit.created_at || APP_BIRTH).split('T')[0];
+      const start = habitBirth > effectiveWindowStart ? habitBirth : effectiveWindowStart;
+
+      // Days in window for this habit
+      const startD = new Date(start   + 'T00:00:00');
+      const endD   = new Date(todayStr + 'T00:00:00');
+      const days   = Math.floor((endD - startD) / 86400000) + 1;
+      if (days <= 0) continue;
+
+      // Get checkin summary: done count + skipped count (excluded from denominator)
+      const summary = await db.getFirstAsync(`
+        SELECT
+          SUM(CASE WHEN status IN ('done','resisted') THEN 1 ELSE 0 END) as done_count,
+          SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END)            as skipped_count
+        FROM checkins
+        WHERE habit_id = ? AND date >= ? AND date <= ?
+      `, [habit.id, start, todayStr]);
+
+      const skipped  = summary?.skipped_count || 0;
+      const done     = summary?.done_count    || 0;
+      const possible = Math.max(0, days - skipped);
+
+      totalPossible += possible;
+      totalDone     += done;
     }
 
-    // Phase E: AND is_paused = 0
-    const habits = await db.getAllAsync(
-      "SELECT id FROM habits WHERE is_active = 1 AND is_paused = 0"
-    );
-    if (!habits || habits.length === 0) return 0;
-
-    const possible = habits.length * 30;
-    if (possible === 0) return 0;
-
-    const done = await db.getFirstAsync(
-      `SELECT COUNT(*) as count FROM checkins
-       WHERE date >= ? AND status IN ('done','resisted')`,
-      [dates[0]]
-    );
-
-    const raw = ((done?.count || 0) / possible) * 1000;
-    return Math.min(1000, Math.round(raw));
-  } catch (error) {
-    console.warn('getKarmaScore error:', error.message);
+    if (totalPossible <= 0) return 0;
+    return Math.min(1000, Math.round((totalDone / totalPossible) * 1000));
+  } catch (e) {
+    console.warn('getKarmaScore:', e.message);
     return 0;
   }
 };
 
-// ── STREAK FREEZE ────────────────────────────────────────────────────
+// Get XP earned from a specific habit (for HabitDetailScreen)
+export const getHabitXPTotal = async (habitId) => {
+  try {
+    const db     = await getDatabase();
+    const result = await db.getFirstAsync(
+      'SELECT COALESCE(SUM(xp), 0) as total FROM xp_log WHERE habit_id = ?',
+      [habitId]
+    );
+    return result?.total || 0;
+  } catch { return 0; }
+};
+
+// ── JOURNEY BADGES ────────────────────────────────────────────────────
+// Overall app achievements — separate from per-habit milestones.
+// Names deliberately distinct from Karma Titles and habit milestone titles.
+export const JOURNEY_BADGES = [
+  {
+    id:       'first_dawn',
+    badge:    '🌅',
+    title:    'First Dawn',
+    desc:     'The battlefield was entered for the first time.',
+    criteria: 'Complete your first habit check-in',
+  },
+  {
+    id:       'first_resistance',
+    badge:    '✊',
+    title:    'First Resistance',
+    desc:     'The first time you said no to yourself.',
+    criteria: 'Resist a break habit for the first time',
+  },
+  {
+    id:       'ten_battles',
+    badge:    '🗡️',
+    title:    'Ten Battles',
+    desc:     'Ten acts of discipline. The path becomes visible.',
+    criteria: '10 total habit completions',
+  },
+  {
+    id:       'century',
+    badge:    '💯',
+    title:    'The Century',
+    desc:     '100 acts of pure discipline. Most never get here.',
+    criteria: '100 total habit completions',
+  },
+  {
+    id:       'all_in_day',
+    badge:    '🎯',
+    title:    'All-In Day',
+    desc:     'Every battle won in a single day. Not one horse broke free.',
+    criteria: 'Complete a perfect day — all habits done',
+  },
+  {
+    id:       'karma_200',
+    badge:    '🔆',
+    title:    'First Flame',
+    desc:     'Karma Score crossed 200. The fire is real.',
+    criteria: 'Reach Karma Score 200+',
+  },
+  {
+    id:       'karma_400',
+    badge:    '🛡️',
+    title:    'The Shield',
+    desc:     'Karma Score 400+. Discipline is becoming defence.',
+    criteria: 'Reach Karma Score 400+',
+  },
+  {
+    id:       'karma_600',
+    badge:    '🌊',
+    title:    'The Current',
+    desc:     'Karma Score 600+. You move like water now.',
+    criteria: 'Reach Karma Score 600+',
+  },
+  {
+    id:       'karma_800',
+    badge:    '🏔️',
+    title:    'The Mountain',
+    desc:     'Karma Score 800+. Immovable. Unshakeable.',
+    criteria: 'Reach Karma Score 800+',
+  },
+  {
+    id:       'the_yogi',
+    badge:    '🧘',
+    title:    'The Yogi',
+    desc:     'All your habits aligned. Every horse in formation.',
+    criteria: 'All active habits have a current streak',
+  },
+  {
+    id:       'legend',
+    badge:    '🌟',
+    title:    'Legend',
+    desc:     'You have become what most only dream of being.',
+    criteria: 'Reach Karma Score 1000',
+  },
+];
+
+export const getEarnedJourneyBadges = async () => {
+  try {
+    const db = await getDatabase();
+    return await db.getAllAsync(
+      'SELECT * FROM journey_milestones ORDER BY achieved_at ASC'
+    ) || [];
+  } catch { return []; }
+};
+
+// Check and award any newly-earned journey badges
+// Call this after: check-ins, perfect day, milestone earned, karma score calculated
+export const checkAndAwardJourneyBadges = async (currentKarmaScore = null) => {
+  try {
+    const db = await getDatabase();
+
+    // Get already-earned badge IDs
+    const earned = await db.getAllAsync('SELECT badge_id FROM journey_milestones') || [];
+    const earnedIds = new Set(earned.map(e => e.badge_id));
+
+    const newBadges = [];
+
+    // Helper: award a badge
+    const award = async (badge) => {
+      if (earnedIds.has(badge.id)) return;
+      await db.runAsync(
+        'INSERT OR IGNORE INTO journey_milestones (badge_id) VALUES (?)',
+        [badge.id]
+      );
+      earnedIds.add(badge.id);
+      newBadges.push(badge);
+      console.log(`🏅 Journey Badge earned: ${badge.title}`);
+    };
+
+    // 1. First Dawn: any done/resisted checkin exists
+    if (!earnedIds.has('first_dawn')) {
+      const first = await db.getFirstAsync(
+        "SELECT id FROM checkins WHERE status IN ('done','resisted') LIMIT 1"
+      );
+      if (first) await award(JOURNEY_BADGES.find(b => b.id === 'first_dawn'));
+    }
+
+    // 2. First Resistance: any resisted checkin exists
+    if (!earnedIds.has('first_resistance')) {
+      const r = await db.getFirstAsync(
+        "SELECT id FROM checkins WHERE status = 'resisted' LIMIT 1"
+      );
+      if (r) await award(JOURNEY_BADGES.find(b => b.id === 'first_resistance'));
+    }
+
+    // 3. Ten Battles: 10+ done/resisted
+    if (!earnedIds.has('ten_battles')) {
+      const count = await db.getFirstAsync(
+        "SELECT COUNT(*) as cnt FROM checkins WHERE status IN ('done','resisted')"
+      );
+      if ((count?.cnt || 0) >= 10) await award(JOURNEY_BADGES.find(b => b.id === 'ten_battles'));
+    }
+
+    // 4. Century: 100+ done/resisted
+    if (!earnedIds.has('century')) {
+      const count = await db.getFirstAsync(
+        "SELECT COUNT(*) as cnt FROM checkins WHERE status IN ('done','resisted')"
+      );
+      if ((count?.cnt || 0) >= 100) await award(JOURNEY_BADGES.find(b => b.id === 'century'));
+    }
+
+    // 5. All-In Day: last_perfect_day is set (means at least one perfect day happened)
+    if (!earnedIds.has('all_in_day')) {
+      const last = await getSetting('last_perfect_day');
+      if (last) await award(JOURNEY_BADGES.find(b => b.id === 'all_in_day'));
+    }
+
+    // 6–11. Karma Score based badges
+    const score = currentKarmaScore !== null ? currentKarmaScore : await getKarmaScore();
+    const scoreChecks = [
+      { id: 'karma_200', threshold: 200 },
+      { id: 'karma_400', threshold: 400 },
+      { id: 'karma_600', threshold: 600 },
+      { id: 'karma_800', threshold: 800 },
+      { id: 'legend',    threshold: 1000 },
+    ];
+    for (const sc of scoreChecks) {
+      if (!earnedIds.has(sc.id) && score >= sc.threshold) {
+        await award(JOURNEY_BADGES.find(b => b.id === sc.id));
+      }
+    }
+
+    // 7. The Yogi: ALL active non-paused habits have current streak >= 1
+    if (!earnedIds.has('the_yogi')) {
+      const habits = await db.getAllAsync(
+        "SELECT id FROM habits WHERE is_active = 1 AND is_paused = 0"
+      ) || [];
+      if (habits.length > 0) {
+        const today     = new Date().toISOString().split('T')[0];
+        let allStreaking = true;
+        for (const h of habits) {
+          const c = await db.getFirstAsync(
+            "SELECT status FROM checkins WHERE habit_id = ? AND date = ? AND status IN ('done','resisted')",
+            [h.id, today]
+          );
+          if (!c) { allStreaking = false; break; }
+        }
+        if (allStreaking) await award(JOURNEY_BADGES.find(b => b.id === 'the_yogi'));
+      }
+    }
+
+    return newBadges;
+  } catch (e) {
+    console.warn('checkAndAwardJourneyBadges:', e.message);
+    return [];
+  }
+};
+
+// ── STREAK FREEZE ─────────────────────────────────────────────────────
 
 export const getStreakFreezeCount = async () => {
   try {
     const val = await getSetting('streak_freeze_count');
     return parseInt(val || '0');
-  } catch {
-    return 0;
-  }
+  } catch { return 0; }
 };
 
 export const useStreakFreeze = async (habitId) => {
   try {
     const freezes = await getStreakFreezeCount();
-    if (freezes <= 0) {
-      return { success: false, message: 'No streak freezes available.' };
-    }
-    const db = await getDatabase();
+    if (freezes <= 0) return { success: false, message: 'No streak freezes available.' };
+
+    const db    = await getDatabase();
     const today = new Date().toISOString().split('T')[0];
     await db.runAsync(
       `INSERT INTO checkins (habit_id, date, status, note, slip_count)
        VALUES (?, ?, 'done', 'Streak freeze used', 0)
-       ON CONFLICT(habit_id, date) DO UPDATE SET
-         status = 'done', note = 'Streak freeze used'`,
+       ON CONFLICT(habit_id, date) DO UPDATE SET status='done', note='Streak freeze used'`,
       [habitId, today]
     );
     await setSetting('streak_freeze_count', String(freezes - 1));
-    console.log(`🧊 Streak freeze used for habit ${habitId}. Remaining: ${freezes - 1}`);
-    return {
-      success: true,
-      remaining: freezes - 1,
-      message: `Streak freeze used! ${freezes - 1} remaining.`,
-    };
-  } catch (error) {
-    console.warn('useStreakFreeze error:', error.message);
-    return { success: false, message: `Freeze failed: ${error.message}` };
+    return { success: true, remaining: freezes - 1 };
+  } catch (e) {
+    return { success: false, message: e.message };
   }
 };
 
 export const checkAndAwardStreakFreeze = async () => {
   try {
-    const today = new Date();
-    const lastAward = await getSetting('last_freeze_award');
+    const today  = new Date();
     const todayStr = today.toISOString().split('T')[0];
     if (today.getDay() !== 0) return false;
-    if (lastAward === todayStr) return false;
+    const last = await getSetting('last_freeze_award');
+    if (last === todayStr) return false;
 
     const db = await getDatabase();
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const fromDate = sevenDaysAgo.toISOString().split('T')[0];
 
-    // Phase E: exclude paused habits
     const habits = await db.getAllAsync(
       "SELECT id FROM habits WHERE is_active = 1 AND is_paused = 0"
-    );
-    if (!habits || habits.length === 0) return false;
+    ) || [];
+    if (habits.length === 0) return false;
 
     const possible = habits.length * 7;
     const done = await db.getFirstAsync(
@@ -320,25 +593,23 @@ export const checkAndAwardStreakFreeze = async () => {
        WHERE date >= ? AND status IN ('done','resisted')`,
       [fromDate]
     );
-
     const rate = (done?.count || 0) / possible;
+
     if (rate >= 0.8) {
       const current = await getStreakFreezeCount();
-      const newCount = Math.min(current + 1, 3);
-      await setSetting('streak_freeze_count', String(newCount));
+      await setSetting('streak_freeze_count', String(Math.min(current + 1, 3)));
       await setSetting('last_freeze_award', todayStr);
-      console.log(`🧊 Streak freeze awarded! Total: ${newCount}`);
       return true;
     }
     return false;
-  } catch (error) {
-    console.warn('checkAndAwardStreakFreeze error:', error.message);
+  } catch (e) {
+    console.warn('checkAndAwardStreakFreeze:', e.message);
     return false;
   }
 };
 
-// ── FULL STATS ────────────────────────────────────────────────────────
-
+// ── FULL STATS ─────────────────────────────────────────────────────────
+// Now returns both karmaTitle (primary) and levelInfo (secondary/XP)
 export const getFullStats = async () => {
   try {
     const [xpStr, karmaScore, freezeCount] = await Promise.all([
@@ -346,15 +617,21 @@ export const getFullStats = async () => {
       getKarmaScore(),
       getStreakFreezeCount(),
     ]);
-    const totalXP = parseInt(xpStr || '0');
+    const totalXP   = parseInt(xpStr || '0');
     const levelInfo = getLevelFromXP(totalXP);
-    return { totalXP, levelInfo, karmaScore, freezeCount };
-  } catch (error) {
-    console.warn('getFullStats error:', error.message);
+    const karmaTitle = getKarmaTitle(karmaScore);
+
+    // Check journey badges silently (non-blocking)
+    checkAndAwardJourneyBadges(karmaScore).catch(() => {});
+
+    return { totalXP, levelInfo, karmaScore, karmaTitle, freezeCount };
+  } catch (e) {
+    console.warn('getFullStats:', e.message);
     return {
-      totalXP: 0,
-      levelInfo: getLevelFromXP(0),
+      totalXP:    0,
+      levelInfo:  getLevelFromXP(0),
       karmaScore: 0,
+      karmaTitle: getKarmaTitle(0),
       freezeCount: 0,
     };
   }
