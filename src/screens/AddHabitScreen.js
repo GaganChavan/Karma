@@ -1,40 +1,25 @@
-// ─── KARMA APP — ADD HABIT (PHASE C) ──────────────────────────────────
-// FIXES:
-//   #1: Scroll works anywhere on screen (not just habit name area)
-//       → Removed KeyboardAvoidingView (breaks Android scroll)
-//       → Added nestedScrollEnabled, keyboardShouldPersistTaps
-//   #2: Overscroll no longer dismisses the screen / loses data
-//       → Added overScrollMode="never", bounces={false}
+// ─── KARMA APP — ADD HABIT (PHASE F-2) ───────────────────────────────
+// Phase F-2: SIP category picker added
+// User must select Spiritual / Intellectual / Physical / Conscious
+// Category is required for new habits, optional for edits (pre-SIP habits)
+// Creates/edits call setHabitCategory separately for edits
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  StatusBar,
-  Alert,
-  Animated,
-  Modal,
-  FlatList,
-  Switch,
+  View, Text, TextInput, TouchableOpacity, ScrollView,
+  StyleSheet, StatusBar, Alert, Animated, Modal, FlatList, Switch,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView }  from 'react-native-safe-area-context';
 import { useTheme, Typography, Spacing, Radius, HabitColors, HabitIcons } from '../constants/colors';
-import { validateHabitForm } from '../utils/validation';
-import { createHabit, updateHabit, getHabitById, archiveHabit } from '../database/habitService';
+import { createHabit, updateHabit, getHabitById, archiveHabit, setHabitCategory } from '../database/habitService';
 import { scheduleHabitNotification, cancelHabitNotification, requestNotificationPermission } from '../services/notificationService';
 
-const DAYS = [
-  { key: '1', label: 'Mon' },
-  { key: '2', label: 'Tue' },
-  { key: '3', label: 'Wed' },
-  { key: '4', label: 'Thu' },
-  { key: '5', label: 'Fri' },
-  { key: '6', label: 'Sat' },
-  { key: '7', label: 'Sun' },
+// SIP Categories — same as SIPMigrationScreen
+const SIP_CATEGORIES = [
+  { key: 'spiritual',    label: 'Spiritual',    icon: '🕉️', color: '#BF5AF2', desc: 'Soul practices' },
+  { key: 'intellectual', label: 'Intellectual', icon: '📚', color: '#0A84FF', desc: 'Mind & learning' },
+  { key: 'physical',     label: 'Physical',     icon: '💪', color: '#30D158', desc: 'Body & health' },
+  { key: 'conscious',    label: 'Conscious',    icon: '🔥', color: '#FF453A', desc: 'Habits to overcome' },
 ];
 
 const TIME_OF_DAY_OPTIONS = [
@@ -44,65 +29,65 @@ const TIME_OF_DAY_OPTIONS = [
   { key: 'anytime',   label: '☸ Anytime',   desc: 'No specific time' },
 ];
 
-const COMMON_UNITS = ['pages', 'minutes', 'glasses', 'reps', 'km', 'hours', 'steps', 'sets'];
+const COMMON_UNITS = ['pages','minutes','glasses','reps','km','hours','steps','sets'];
 
 const defaultForm = {
-  name: '',
-  type: 'build',
-  icon: '⭐',
-  color: '#F5A623',
-  frequency: 'daily',
-  days: '1,2,3,4,5,6,7',
-  time_of_day: 'anytime',
-  is_quantifiable: 0,
-  daily_target: '1',
-  unit: '',
-  frequency_type: 'daily',
-  weekly_target: '5',
-  reminder_time: '',
-  reminder_type: 'none',
-  goal_days: '',
-  punishment_sensitivity: 'balanced',
+  name:                  '',
+  type:                  'build',
+  icon:                  '⭐',
+  color:                 '#F5A623',
+  category:              null,         // Phase F-2: required for new habits
+  frequency:             'daily',
+  days:                  '1,2,3,4,5,6,7',
+  time_of_day:           'anytime',
+  is_quantifiable:       0,
+  daily_target:          '1',
+  unit:                  '',
+  frequency_type:        'daily',
+  weekly_target:         '5',
+  reminder_time:         '',
+  reminder_type:         'none',
+  goal_days:             '',
+  punishment_sensitivity:'balanced',
 };
 
 const AddHabitScreen = ({ navigation, route }) => {
-  const { colors } = useTheme();
-  const editId = route?.params?.habitId || null;
-  const isEdit = !!editId;
+  const { colors }   = useTheme();
+  const editId       = route?.params?.habitId || null;
+  const isEdit       = !!editId;
 
-  const [form, setForm] = useState(defaultForm);
-  const [errors, setErrors] = useState({});
-  const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(isEdit);
-  const [iconModal, setIconModal] = useState(false);
+  const [form,       setForm]       = useState(defaultForm);
+  const [errors,     setErrors]     = useState({});
+  const [saving,     setSaving]     = useState(false);
+  const [loading,    setLoading]    = useState(isEdit);
+  const [iconModal,  setIconModal]  = useState(false);
   const [colorModal, setColorModal] = useState(false);
-  const [selDays, setSelDays] = useState(new Set(['1','2','3','4','5','6','7']));
+  const [selDays,    setSelDays]    = useState(new Set(['1','2','3','4','5','6','7']));
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    if (isEdit) _loadHabit();
-  }, []);
+  useEffect(() => { if (isEdit) _loadHabit(); }, []);
 
   const _loadHabit = async () => {
     try {
       const h = await getHabitById(editId);
       setForm({
-        name: h.name,
-        type: h.type,
-        icon: h.icon,
-        color: h.color,
-        frequency: h.frequency,
-        days: h.days,
-        time_of_day: h.time_of_day || 'anytime',
-        is_quantifiable: h.is_quantifiable || 0,
-        daily_target: h.daily_target ? String(h.daily_target) : '1',
-        unit: h.unit || '',
-        frequency_type: h.frequency_type || 'daily',
-        weekly_target: h.weekly_target ? String(h.weekly_target) : '5',
-        reminder_time: h.reminder_time || '',
-        reminder_type: h.reminder_type,
-        goal_days: h.goal_days ? String(h.goal_days) : '',
-        punishment_sensitivity: h.punishment_sensitivity,
+        name:                  h.name,
+        type:                  h.type,
+        icon:                  h.icon,
+        color:                 h.color,
+        category:              h.category || null,
+        frequency:             h.frequency,
+        days:                  h.days,
+        time_of_day:           h.time_of_day || 'anytime',
+        is_quantifiable:       h.is_quantifiable || 0,
+        daily_target:          h.daily_target ? String(h.daily_target) : '1',
+        unit:                  h.unit || '',
+        frequency_type:        h.frequency_type || 'daily',
+        weekly_target:         h.weekly_target ? String(h.weekly_target) : '5',
+        reminder_time:         h.reminder_time || '',
+        reminder_type:         h.reminder_type,
+        goal_days:             h.goal_days ? String(h.goal_days) : '',
+        punishment_sensitivity:h.punishment_sensitivity,
       });
       setSelDays(new Set(h.days.split(',')));
     } catch (err) {
@@ -139,39 +124,57 @@ const AddHabitScreen = ({ navigation, route }) => {
   };
 
   const _save = async () => {
+    // Validate name
     if (!form.name?.trim() || form.name.trim().length < 3) {
-      setErrors({ name: "Habit name must be at least 3 characters" });
+      setErrors({ name: 'Habit name must be at least 3 characters' });
       _shake();
       return;
     }
+    // Phase F-2: category required for new habits
+    if (!isEdit && !form.category) {
+      setErrors({ category: 'Please select a category for this habit' });
+      _shake();
+      return;
+    }
+
     if (form.reminder_type !== 'none' && form.reminder_time) {
       await requestNotificationPermission();
     }
+
     setSaving(true);
     try {
       const data = {
         ...form,
-        goal_days: form.goal_days ? parseInt(form.goal_days) : 0,
-        days: form.frequency === 'daily' ? '1,2,3,4,5,6,7' : form.days,
+        goal_days:       form.goal_days ? parseInt(form.goal_days) : 0,
+        days:            form.frequency === 'daily' ? '1,2,3,4,5,6,7' : form.days,
         is_quantifiable: form.is_quantifiable ? 1 : 0,
-        daily_target: parseFloat(form.daily_target) || 1,
-        weekly_target: parseInt(form.weekly_target) || 5,
+        daily_target:    parseFloat(form.daily_target)  || 1,
+        weekly_target:   parseInt(form.weekly_target)   || 5,
       };
+
       let habitId = editId;
+
       if (isEdit) {
         await updateHabit(editId, data);
+        // Phase F-2: update category separately (updateHabit doesn't touch category)
+        if (form.category) {
+          await setHabitCategory(editId, form.category);
+        }
       } else {
-        habitId = await createHabit(data);
+        habitId = await createHabit(data);  // category stored in createHabit
       }
+
       if (form.reminder_type !== 'none' && form.reminder_time && habitId) {
         await scheduleHabitNotification({ ...data, id: habitId, is_active: 1 });
       } else if (isEdit && form.reminder_type === 'none') {
         await cancelHabitNotification(editId);
       }
+
       if (!isEdit) {
+        const ego = form.name; // just use habit name in alert
         Alert.alert(
           '🔱 Created',
-          `"${form.name}" added. Day 1 starts now, Neel.`,
+          `"${form.name}" added to ${SIP_CATEGORIES.find(c => c.key === form.category)?.label || 'your'} practice. Day 1 starts now.`,
           [{ text: "Let's Go", onPress: () => navigation.goBack() }]
         );
         return;
@@ -195,18 +198,13 @@ const AddHabitScreen = ({ navigation, route }) => {
       `Archive "${form.name}"? History preserved.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Archive', style: 'destructive',
-          onPress: async () => {
-            try {
-              await archiveHabit(editId);
-              await cancelHabitNotification(editId);
-              navigation.goBack();
-            } catch (err) {
-              Alert.alert('Error', err.message);
-            }
-          },
-        },
+        { text: 'Archive', style: 'destructive', onPress: async () => {
+          try {
+            await archiveHabit(editId);
+            await cancelHabitNotification(editId);
+            navigation.goBack();
+          } catch (err) { Alert.alert('Error', err.message); }
+        }},
       ]
     );
   };
@@ -239,13 +237,6 @@ const AddHabitScreen = ({ navigation, route }) => {
         }
       </View>
 
-      {/*
-        FIX #1 + #2: Replaced KeyboardAvoidingView with plain View.
-        KeyboardAvoidingView breaks Android scroll touch detection.
-        overScrollMode="never" prevents the screen from dismissing when
-        you scroll past the top (Android overscroll gesture).
-        bounces={false} is the iOS equivalent.
-      */}
       <View style={{ flex: 1 }}>
         <ScrollView
           style={{ flex: 1 }}
@@ -256,15 +247,61 @@ const AddHabitScreen = ({ navigation, route }) => {
           bounces={false}
           nestedScrollEnabled={true}
         >
-          {errors.general && (
-            <View style={[styles.errorBanner, { backgroundColor: colors.redAlpha15, borderColor: colors.redAlpha25 }]}>
-              <Text style={{ ...Typography.callout, color: colors.red }}>⚠️ {errors.general}</Text>
+          {/* ── Phase F-2: SIP Category Picker — FIRST section ── */}
+          <Text style={[styles.groupLabel, { color: colors.textDim }]}>CATEGORY</Text>
+          <Animated.View style={[styles.group, {
+            backgroundColor: colors.backgroundCard,
+            borderColor: errors.category ? colors.red + '55' : colors.separator,
+            transform: [{ translateX: shakeAnim }],
+          }]}>
+            <View style={{ flexDirection: 'row', gap: 0 }}>
+              {SIP_CATEGORIES.map((cat, i) => {
+                const selected = form.category === cat.key;
+                return (
+                  <TouchableOpacity
+                    key={cat.key}
+                    style={{
+                      flex: 1,
+                      paddingVertical: Spacing.lg,
+                      alignItems: 'center',
+                      gap: 4,
+                      backgroundColor: selected ? cat.color + '20' : 'transparent',
+                      borderRightWidth: i < SIP_CATEGORIES.length - 1 ? 1 : 0,
+                      borderRightColor: colors.separator,
+                      borderBottomWidth: selected ? 2 : 0,
+                      borderBottomColor: cat.color,
+                    }}
+                    onPress={() => { _set('category', cat.key); setErrors(p => ({ ...p, category: null })); }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 20 }}>{cat.icon}</Text>
+                    <Text style={{
+                      ...Typography.caption2,
+                      color: selected ? cat.color : colors.textDim,
+                      fontWeight: selected ? '700' : '400',
+                      letterSpacing: 0.5,
+                    }}>
+                      {cat.label}
+                    </Text>
+                    <Text style={{ fontSize: 9, color: selected ? cat.color : colors.textDim, opacity: 0.8 }}>
+                      {cat.desc}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
+          </Animated.View>
+          {errors.category && (
+            <Text style={[styles.fieldError, { color: colors.red }]}>{errors.category}</Text>
           )}
 
-          {/* Type */}
+          {/* ── Habit Type ── */}
           <Text style={[styles.groupLabel, { color: colors.textDim }]}>HABIT TYPE</Text>
-          <Animated.View style={[styles.group, { backgroundColor: colors.backgroundCard, borderColor: colors.separator, transform: [{ translateX: shakeAnim }] }]}>
+          <Animated.View style={[styles.group, {
+            backgroundColor: colors.backgroundCard,
+            borderColor: colors.separator,
+            transform: [{ translateX: shakeAnim }],
+          }]}>
             <View style={{ flexDirection: 'row', gap: Spacing.md, padding: Spacing.md }}>
               {[
                 { type: 'build', emoji: '🟢', label: 'Build', desc: 'Do this daily' },
@@ -273,8 +310,12 @@ const AddHabitScreen = ({ navigation, route }) => {
                 <TouchableOpacity
                   key={t.type}
                   style={[styles.typeCard, {
-                    backgroundColor: form.type === t.type ? (t.type === 'build' ? colors.goldAlpha15 : colors.redAlpha15) : colors.backgroundElevated,
-                    borderColor: form.type === t.type ? (t.type === 'build' ? colors.goldAlpha40 : colors.redAlpha25) : colors.separator,
+                    backgroundColor: form.type === t.type
+                      ? (t.type === 'build' ? colors.goldAlpha15 : colors.redAlpha15)
+                      : colors.backgroundElevated,
+                    borderColor: form.type === t.type
+                      ? (t.type === 'build' ? colors.goldAlpha40 : colors.redAlpha25)
+                      : colors.separator,
                   }]}
                   onPress={() => _set('type', t.type)}
                 >
@@ -286,9 +327,12 @@ const AddHabitScreen = ({ navigation, route }) => {
             </View>
           </Animated.View>
 
-          {/* Name */}
+          {/* ── Name ── */}
           <Text style={[styles.groupLabel, { color: colors.textDim }]}>NAME</Text>
-          <View style={[styles.group, { backgroundColor: colors.backgroundCard, borderColor: errors.name ? colors.red + '55' : colors.separator }]}>
+          <View style={[styles.group, {
+            backgroundColor: colors.backgroundCard,
+            borderColor: errors.name ? colors.red + '55' : colors.separator,
+          }]}>
             <TextInput
               style={[styles.nameInput, { color: colors.textPrimary }]}
               value={form.name}
@@ -298,11 +342,13 @@ const AddHabitScreen = ({ navigation, route }) => {
               maxLength={50}
               returnKeyType="done"
             />
-            <Text style={{ ...Typography.caption2, color: colors.textDim, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md }}>{form.name.length}/50</Text>
+            <Text style={{ ...Typography.caption2, color: colors.textDim, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md }}>
+              {form.name.length}/50
+            </Text>
           </View>
           {errors.name && <Text style={[styles.fieldError, { color: colors.red }]}>{errors.name}</Text>}
 
-          {/* ── QUANTIFIABLE ── */}
+          {/* ── Tracking Type ── */}
           <Text style={[styles.groupLabel, { color: colors.textDim }]}>TRACKING TYPE</Text>
           <View style={[styles.group, { backgroundColor: colors.backgroundCard, borderColor: colors.separator }]}>
             <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.separator }]}>
@@ -345,14 +391,13 @@ const AddHabitScreen = ({ navigation, route }) => {
                     />
                   </View>
                 </View>
-                {/* Quick unit buttons */}
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
                   {COMMON_UNITS.map(u => (
                     <TouchableOpacity
                       key={u}
                       style={[styles.unitPill, {
                         backgroundColor: form.unit === u ? colors.goldAlpha15 : colors.backgroundElevated,
-                        borderColor: form.unit === u ? colors.goldAlpha40 : colors.separator,
+                        borderColor:     form.unit === u ? colors.goldAlpha40 : colors.separator,
                       }]}
                       onPress={() => _set('unit', u)}
                     >
@@ -364,7 +409,7 @@ const AddHabitScreen = ({ navigation, route }) => {
             )}
           </View>
 
-          {/* ── STREAK MODE ── */}
+          {/* ── Streak Mode ── */}
           <Text style={[styles.groupLabel, { color: colors.textDim }]}>STREAK MODE</Text>
           <View style={[styles.group, { backgroundColor: colors.backgroundCard, borderColor: colors.separator }]}>
             {[
@@ -393,7 +438,7 @@ const AddHabitScreen = ({ navigation, route }) => {
                       key={n}
                       style={[styles.numPill, {
                         backgroundColor: form.weekly_target === String(n) ? colors.goldAlpha15 : colors.backgroundElevated,
-                        borderColor: form.weekly_target === String(n) ? colors.goldAlpha40 : colors.separator,
+                        borderColor:     form.weekly_target === String(n) ? colors.goldAlpha40 : colors.separator,
                       }]}
                       onPress={() => _set('weekly_target', String(n))}
                     >
@@ -401,14 +446,11 @@ const AddHabitScreen = ({ navigation, route }) => {
                     </TouchableOpacity>
                   ))}
                 </View>
-                <Text style={{ ...Typography.caption2, color: colors.textDim }}>
-                  Perfect for gym, runs, or anything you don't do every single day.
-                </Text>
               </View>
             )}
           </View>
 
-          {/* Time of day */}
+          {/* ── Time of Day ── */}
           <Text style={[styles.groupLabel, { color: colors.textDim }]}>TIME OF DAY</Text>
           <View style={[styles.group, { backgroundColor: colors.backgroundCard, borderColor: colors.separator }]}>
             {TIME_OF_DAY_OPTIONS.map((t, i) => (
@@ -427,7 +469,7 @@ const AddHabitScreen = ({ navigation, route }) => {
             ))}
           </View>
 
-          {/* Appearance */}
+          {/* ── Appearance ── */}
           <Text style={[styles.groupLabel, { color: colors.textDim }]}>APPEARANCE</Text>
           <View style={[styles.group, { backgroundColor: colors.backgroundCard, borderColor: colors.separator }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.lg }}>
@@ -436,7 +478,10 @@ const AddHabitScreen = ({ navigation, route }) => {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ ...Typography.headline, color: colors.textPrimary }} numberOfLines={1}>{form.name || 'Preview'}</Text>
-                <Text style={{ ...Typography.caption1, color: accent, marginTop: 3, fontWeight: '700' }}>{form.type === 'build' ? '🟢 BUILD' : '🔴 BREAK'}</Text>
+                <Text style={{ ...Typography.caption1, color: accent, marginTop: 3, fontWeight: '700' }}>
+                  {form.type === 'build' ? '🟢 BUILD' : '🔴 BREAK'}
+                  {form.category ? `  ·  ${SIP_CATEGORIES.find(c => c.key === form.category)?.icon} ${SIP_CATEGORIES.find(c => c.key === form.category)?.label}` : ''}
+                </Text>
               </View>
             </View>
             <View style={[styles.separator, { backgroundColor: colors.separator }]} />
@@ -457,7 +502,7 @@ const AddHabitScreen = ({ navigation, route }) => {
             </TouchableOpacity>
           </View>
 
-          {/* Reminder */}
+          {/* ── Reminder ── */}
           <Text style={[styles.groupLabel, { color: colors.textDim }]}>REMINDER</Text>
           <View style={[styles.group, { backgroundColor: colors.backgroundCard, borderColor: colors.separator }]}>
             {[
@@ -475,7 +520,7 @@ const AddHabitScreen = ({ navigation, route }) => {
             ))}
           </View>
           {form.reminder_type !== 'none' && (
-            <View style={[styles.group, { backgroundColor: colors.backgroundCard, borderColor: errors.reminder_time ? colors.red + '55' : colors.separator, marginTop: Spacing.xs }]}>
+            <View style={[styles.group, { backgroundColor: colors.backgroundCard, borderColor: colors.separator, marginTop: Spacing.xs }]}>
               <TextInput
                 style={[styles.nameInput, { color: colors.textPrimary, textAlign: 'center', letterSpacing: 2 }]}
                 value={form.reminder_time}
@@ -488,7 +533,7 @@ const AddHabitScreen = ({ navigation, route }) => {
             </View>
           )}
 
-          {/* Punishment (break only) */}
+          {/* ── Punishment (break only) ── */}
           {form.type === 'break' && (
             <>
               <Text style={[styles.groupLabel, { color: colors.textDim }]}>PUNISHMENT LEVEL</Text>
@@ -513,9 +558,13 @@ const AddHabitScreen = ({ navigation, route }) => {
             </>
           )}
 
-          {/* Save */}
+          {/* ── Save ── */}
           <TouchableOpacity
-            style={[styles.saveBtn, { backgroundColor: accent, marginHorizontal: Spacing.xl, opacity: saving ? 0.7 : 1 }]}
+            style={[styles.saveBtn, {
+              backgroundColor: accent,
+              marginHorizontal: Spacing.xl,
+              opacity: saving ? 0.7 : 1,
+            }]}
             onPress={_save}
             disabled={saving}
             activeOpacity={0.85}
@@ -529,7 +578,7 @@ const AddHabitScreen = ({ navigation, route }) => {
         </ScrollView>
       </View>
 
-      {/* Icon Modal — outside ScrollView so it doesn't affect scroll */}
+      {/* Icon Modal */}
       <Modal visible={iconModal} transparent animationType="slide" onRequestClose={() => setIconModal(false)}>
         <TouchableOpacity style={[styles.modalOverlay, { backgroundColor: colors.overlay90 }]} activeOpacity={1} onPress={() => setIconModal(false)}>
           <View style={[styles.modalSheet, { backgroundColor: colors.backgroundCard }]}>
@@ -552,7 +601,7 @@ const AddHabitScreen = ({ navigation, route }) => {
         </TouchableOpacity>
       </Modal>
 
-      {/* Color Modal — outside ScrollView */}
+      {/* Color Modal */}
       <Modal visible={colorModal} transparent animationType="slide" onRequestClose={() => setColorModal(false)}>
         <TouchableOpacity style={[styles.modalOverlay, { backgroundColor: colors.overlay90 }]} activeOpacity={1} onPress={() => setColorModal(false)}>
           <View style={[styles.modalSheet, { backgroundColor: colors.backgroundCard }]}>
@@ -562,11 +611,7 @@ const AddHabitScreen = ({ navigation, route }) => {
               {HabitColors.map(color => (
                 <TouchableOpacity
                   key={color}
-                  style={[
-                    styles.colorOption,
-                    { backgroundColor: color },
-                    color === form.color && { borderWidth: 3, borderColor: '#fff', transform: [{ scale: 1.15 }] },
-                  ]}
+                  style={[styles.colorOption, { backgroundColor: color }, color === form.color && { borderWidth: 3, borderColor: '#fff', transform: [{ scale: 1.15 }] }]}
                   onPress={() => { _set('color', color); setColorModal(false); }}
                 >
                   {color === form.color && <Text style={{ color: '#000', fontSize: 18, fontWeight: '700' }}>✓</Text>}
@@ -581,63 +626,25 @@ const AddHabitScreen = ({ navigation, route }) => {
 };
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md, borderBottomWidth: 1,
-  },
-  headerBtn: { padding: Spacing.xs, minWidth: 64 },
-  errorBanner: {
-    borderRadius: Radius.md, padding: Spacing.md,
-    marginHorizontal: Spacing.xl, marginBottom: Spacing.lg, borderWidth: 1,
-  },
-  groupLabel: {
-    ...Typography.caption2, letterSpacing: 1.5,
-    marginHorizontal: Spacing.xl, marginBottom: Spacing.xs, marginTop: Spacing.xl,
-  },
-  group: {
-    borderRadius: Radius.lg, marginHorizontal: Spacing.xl,
-    overflow: 'hidden', borderWidth: 1,
-  },
-  fieldError: {
-    ...Typography.caption1, marginHorizontal: Spacing.xl + Spacing.xs, marginTop: Spacing.xs,
-  },
-  typeCard: {
-    flex: 1, borderRadius: Radius.md, borderWidth: 1,
-    padding: Spacing.lg, alignItems: 'center', gap: Spacing.xs,
-  },
-  nameInput: { ...Typography.body, padding: Spacing.lg },
-  row: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.lg, minHeight: 52,
-  },
-  separator: { height: 1, marginHorizontal: Spacing.lg },
-  numInput: {
-    borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md,
-    ...Typography.callout, textAlign: 'center',
-  },
-  unitPill: { borderRadius: Radius.full, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
-  numPill: {
-    borderRadius: Radius.full, borderWidth: 1,
-    paddingHorizontal: 16, paddingVertical: 10, minWidth: 52, alignItems: 'center',
-  },
-  saveBtn: {
-    borderRadius: Radius.lg, paddingVertical: 18,
-    alignItems: 'center', marginTop: Spacing.xxl,
-  },
+  header:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md, borderBottomWidth: 1 },
+  headerBtn:    { padding: Spacing.xs, minWidth: 64 },
+  groupLabel:   { ...Typography.caption2, letterSpacing: 1.5, marginHorizontal: Spacing.xl, marginBottom: Spacing.xs, marginTop: Spacing.xl },
+  group:        { borderRadius: Radius.lg, marginHorizontal: Spacing.xl, overflow: 'hidden', borderWidth: 1 },
+  fieldError:   { ...Typography.caption1, marginHorizontal: Spacing.xl + Spacing.xs, marginTop: Spacing.xs },
+  typeCard:     { flex: 1, borderRadius: Radius.md, borderWidth: 1, padding: Spacing.lg, alignItems: 'center', gap: Spacing.xs },
+  nameInput:    { ...Typography.body, padding: Spacing.lg },
+  row:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.lg, minHeight: 52 },
+  separator:    { height: 1, marginHorizontal: Spacing.lg },
+  numInput:     { borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md, ...Typography.callout, textAlign: 'center' },
+  unitPill:     { borderRadius: Radius.full, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
+  numPill:      { borderRadius: Radius.full, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 10, minWidth: 52, alignItems: 'center' },
+  saveBtn:      { borderRadius: Radius.lg, paddingVertical: 18, alignItems: 'center', marginTop: Spacing.xxl },
   modalOverlay: { flex: 1, justifyContent: 'flex-end' },
-  modalSheet: {
-    borderTopLeftRadius: Radius.xxl, borderTopRightRadius: Radius.xxl,
-    padding: Spacing.xl, paddingBottom: 40, maxHeight: '65%',
-  },
-  modalHandle: {
-    width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: Spacing.lg,
-  },
-  iconOption: {
-    width: 44, height: 44, borderRadius: Radius.sm, alignItems: 'center',
-    justifyContent: 'center', margin: 3, borderWidth: 1, borderColor: 'transparent',
-  },
-  colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, justifyContent: 'center', paddingVertical: Spacing.lg },
-  colorOption: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  modalSheet:   { borderTopLeftRadius: Radius.xxl, borderTopRightRadius: Radius.xxl, padding: Spacing.xl, paddingBottom: 40, maxHeight: '65%' },
+  modalHandle:  { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: Spacing.lg },
+  iconOption:   { width: 44, height: 44, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center', margin: 3, borderWidth: 1, borderColor: 'transparent' },
+  colorGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 16, justifyContent: 'center', paddingVertical: Spacing.lg },
+  colorOption:  { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
 });
 
 export default AddHabitScreen;
