@@ -454,6 +454,11 @@ const SettingsScreen = ({ navigation }) => {
 
         <Text style={s.groupLabel}>ABOUT</Text>
         <View style={s.group}>
+          <TouchableOpacity style={s.row} onPress={() => navigation.navigate('KnowKarma')}>
+            <View><Text style={s.rowLabel}>Know Karma ☸</Text><Text style={s.rowDesc}>Complete guide to XP, Karma Score, Badges</Text></View>
+            <Text style={s.rowArrow}>,</Text>
+          </TouchableOpacity>
+          <View style={s.separator} />
           <View style={s.row}><Text style={s.rowLabel}>App</Text><Text style={s.rowValue}>Karma ☸ v1.0</Text></View>
           <View style={s.separator} />
           <View style={s.row}><Text style={s.rowLabel}>Built for</Text><Text style={[s.rowValue, { color: colors.gold }]}>{alterEgo}</Text></View>

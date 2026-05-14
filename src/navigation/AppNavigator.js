@@ -22,6 +22,7 @@ import WFOModeScreen             from '../screens/WFOModeScreen';
 import NeuralProgressScreen      from '../screens/NeuralProgressScreen';
 import BeforeNowScreen           from '../screens/BeforeNowScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';  // Phase F-4
+import KnowKarmaScreen            from '../screens/KnowKarmaScreen';
 
 const Tab   = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -112,6 +113,9 @@ const AppNavigator = () => (
 
     {/* Phase F-4 */}
     <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+
+    {/* Phase F-5 */}
+    <Stack.Screen name="KnowKarma" component={KnowKarmaScreen} />
   </Stack.Navigator>
 );
 
