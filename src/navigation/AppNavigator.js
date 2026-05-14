@@ -1,32 +1,33 @@
-// ─── KARMA APP — NAVIGATION (PHASE D — FINAL) ────────────────────────
-// All screens wired. This is the complete Karma app.
+// ─── KARMA APP — NAVIGATION (PHASE F-4) ──────────────────────────────
+// Phase F-4: NotificationSettingsScreen added to stack
+// Phase F-1: SIPMigrationScreen already handled in App.js (not navigator)
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator }     from '@react-navigation/stack';
-import { useTheme, Typography }     from '../constants/colors';
+import { useTheme, Typography }      from '../constants/colors';
 
-import HomeScreen             from '../screens/HomeScreen';
-import AddHabitScreen         from '../screens/AddHabitScreen';
-import HabitDetailScreen      from '../screens/HabitDetailScreen';
-import CelebrationScreen      from '../screens/CelebrationScreen';
-import StatsScreen            from '../screens/StatsScreen';
-import HistoryScreen          from '../screens/HistoryScreen';
-import HabitsScreen           from '../screens/HabitsScreen';
-import SettingsScreen         from '../screens/SettingsScreen';
-import MoodLogScreen          from '../screens/MoodLogScreen';
-import WeeklyReflectionScreen from '../screens/WeeklyReflectionScreen';
-import WFOModeScreen          from '../screens/WFOModeScreen';
-import NeuralProgressScreen   from '../screens/NeuralProgressScreen';
-import BeforeNowScreen        from '../screens/BeforeNowScreen';
+import HomeScreen                from '../screens/HomeScreen';
+import AddHabitScreen            from '../screens/AddHabitScreen';
+import HabitDetailScreen         from '../screens/HabitDetailScreen';
+import CelebrationScreen         from '../screens/CelebrationScreen';
+import StatsScreen               from '../screens/StatsScreen';
+import HistoryScreen             from '../screens/HistoryScreen';
+import HabitsScreen              from '../screens/HabitsScreen';
+import SettingsScreen            from '../screens/SettingsScreen';
+import MoodLogScreen             from '../screens/MoodLogScreen';
+import WeeklyReflectionScreen    from '../screens/WeeklyReflectionScreen';
+import WFOModeScreen             from '../screens/WFOModeScreen';
+import NeuralProgressScreen      from '../screens/NeuralProgressScreen';
+import BeforeNowScreen           from '../screens/BeforeNowScreen';
+import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';  // Phase F-4
 
 const Tab   = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
 const KarmaTabBar = ({ state, navigation }) => {
   const { colors } = useTheme();
-
   const tabs = [
     { name: 'Home',     label: 'Home' },
     { name: 'Habits',   label: 'Habits' },
@@ -55,10 +56,8 @@ const KarmaTabBar = ({ state, navigation }) => {
             </TouchableOpacity>
           );
         }
-
-        const isFocused  = state.routes[state.index]?.name === tab.name;
-        const routeIndex = state.routes.findIndex(r => r.name === tab.name);
-
+        const isFocused    = state.routes[state.index]?.name === tab.name;
+        const routeIndex   = state.routes.findIndex(r => r.name === tab.name);
         return (
           <TouchableOpacity
             key={tab.name}
@@ -91,41 +90,39 @@ const TabNavigator = () => (
   </Tab.Navigator>
 );
 
-// ── COMPLETE SCREEN REGISTRY ──────────────────────────────────────────
-
 const AppNavigator = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     {/* Core */}
-    <Stack.Screen name="Main"             component={TabNavigator} />
-    <Stack.Screen name="HabitDetail"      component={HabitDetailScreen} />
-    <Stack.Screen name="History"          component={HistoryScreen} />
+    <Stack.Screen name="Main"        component={TabNavigator} />
+    <Stack.Screen name="HabitDetail" component={HabitDetailScreen} />
+    <Stack.Screen name="History"     component={HistoryScreen} />
 
     {/* Modals */}
-    <Stack.Screen name="AddHabit"         component={AddHabitScreen}
-      options={{ presentation: 'modal', gestureEnabled: true }} />
-    <Stack.Screen name="Celebration"      component={CelebrationScreen}
-      options={{ presentation: 'modal', gestureEnabled: false }} />
-    <Stack.Screen name="MoodLog"          component={MoodLogScreen}
-      options={{ presentation: 'modal', gestureEnabled: true }} />
+    <Stack.Screen name="AddHabit"    component={AddHabitScreen}    options={{ presentation: 'modal', gestureEnabled: true }} />
+    <Stack.Screen name="Celebration" component={CelebrationScreen} options={{ presentation: 'modal', gestureEnabled: false }} />
+    <Stack.Screen name="MoodLog"     component={MoodLogScreen}     options={{ presentation: 'modal', gestureEnabled: true }} />
 
     {/* Phase B */}
     <Stack.Screen name="WeeklyReflection" component={WeeklyReflectionScreen} />
 
-    {/* Phase D — Final */}
-    <Stack.Screen name="WFOMode"          component={WFOModeScreen} />
-    <Stack.Screen name="NeuralProgress"   component={NeuralProgressScreen} />
-    <Stack.Screen name="BeforeNow"        component={BeforeNowScreen} />
+    {/* Phase D */}
+    <Stack.Screen name="WFOMode"       component={WFOModeScreen} />
+    <Stack.Screen name="NeuralProgress" component={NeuralProgressScreen} />
+    <Stack.Screen name="BeforeNow"      component={BeforeNowScreen} />
+
+    {/* Phase F-4 */}
+    <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
   </Stack.Navigator>
 );
 
 const styles = StyleSheet.create({
-  tabBar:      { flexDirection: 'row', borderTopWidth: 1, paddingBottom: Platform.OS === 'ios' ? 24 : 10, paddingTop: 12, paddingHorizontal: 8, alignItems: 'center' },
-  tab:         { flex: 1, alignItems: 'center' },
-  tabInner:    { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  tabLabel:    { ...Typography.caption1 },
-  centerWrap:  { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: -18 },
-  centerBtn:   { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 },
-  centerIcon:  { fontSize: 28, color: '#000', fontWeight: '300', lineHeight: 30 },
+  tabBar:     { flexDirection: 'row', borderTopWidth: 1, paddingBottom: Platform.OS === 'ios' ? 24 : 10, paddingTop: 12, paddingHorizontal: 8, alignItems: 'center' },
+  tab:        { flex: 1, alignItems: 'center' },
+  tabInner:   { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  tabLabel:   { ...Typography.caption1 },
+  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: -18 },
+  centerBtn:  { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 },
+  centerIcon: { fontSize: 28, color: '#000', fontWeight: '300', lineHeight: 30 },
 });
 
 export default AppNavigator;
