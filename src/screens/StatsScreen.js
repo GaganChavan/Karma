@@ -1,77 +1,71 @@
-// ─── KARMA APP — STATS SCREEN (PHASE D) ─────────────────────────────
-// FIX #8: 90-day heatmap — self-explanatory
-//   - Month labels above columns (Jan, Feb, etc.)
-//   - Day-of-week labels (M T W T F S S)
-//   - Color legend at bottom
-//   - Consistency % shown
-//   - Summary: done / missed / tracked numbers
-//   - Starts from first app use date (not fake 90 days of empty)
-//   - Today highlighted with gold border
-//   - Days before app existed are transparent (not shown as missed)
+// ─── KARMA APP — STATS SCREEN (PHASE F-3) ────────────────────────────
+// Phase F-3 changes:
+// 1. Habit completion rate: denominator = expected days (not checkins.length)
+//    Skipped days excluded from denominator too
+// 2. Overview: Karma Title shown as primary (Score-based), XP Level secondary
+// 3. Badges tab split:
+//    - HABIT MILESTONES: habit picker → see that habit's 11 milestone slots
+//    - JOURNEY BADGES: overall achievement badges (from journey_milestones table)
+// 4. Day labels fixed: ['M','','W','','F','','S'] → ['M','T','W','T','F','S','S']
+// 5. Imports updated: JOURNEY_BADGES, getEarnedJourneyBadges, getKarmaTitle added
 
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   StatusBar, ActivityIndicator, Dimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { SafeAreaView }    from 'react-native-safe-area-context';
+import { useFocusEffect }  from '@react-navigation/native';
 import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
-import { DateUtils } from '../utils/dateUtils';
+import { DateUtils }       from '../utils/dateUtils';
 import { getAllHabits, getStreak, getSetting } from '../database/habitService';
-import { getFullStats, MILESTONE_INFO, LEVELS } from '../services/gamificationService';
-import { getDatabase } from '../database/database';
+import {
+  getFullStats, MILESTONE_INFO, JOURNEY_BADGES,
+  getEarnedJourneyBadges, getKarmaTitle,
+} from '../services/gamificationService';
+import { getDatabase }     from '../database/database';
 import { generateInsights } from '../services/insightsService';
 
 const { width } = Dimensions.get('window');
 
-// ── Heatmap constants ─────────────────────────────────────────────────
 const CELL = 11;
 const GAP  = 2;
+const APP_BIRTH = '2026-05-01';
+const MILESTONE_DAYS = [3, 7, 14, 21, 30, 48, 60, 75, 90, 180, 365];
 
-// ── Self-explanatory heatmap with month picker ────────────────────────
+// ── Overview Heatmap ──────────────────────────────────────────────────
 const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
   if (!heatmapData || heatmapData.length === 0) return null;
 
   const today = new Date().toISOString().split('T')[0];
-
-  // Month picker state — null = show all
   const [selectedMonth, setSelectedMonth] = useState(null);
 
-  // Build available months from appStartDate to today
   const availableMonths = useMemo(() => {
     const months = [];
     const start = new Date(appStartDate + 'T00:00:00');
-    const end = new Date(today + 'T00:00:00');
-    const d = new Date(start.getFullYear(), start.getMonth(), 1);
+    const end   = new Date(today + 'T00:00:00');
+    const d     = new Date(start.getFullYear(), start.getMonth(), 1);
     while (d <= end) {
       months.push({
-        key: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
+        key:   `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
         label: d.toLocaleString('default', { month: 'short', year: '2-digit' }),
       });
       d.setMonth(d.getMonth() + 1);
     }
     return months;
-  // eslint-disable-next-line
   }, [appStartDate, today]);
 
-  // Filter heatmap data by selected month
-  const filteredData = useMemo(() => {
-    if (!selectedMonth) return heatmapData;
-    return heatmapData.filter(d => d.date.startsWith(selectedMonth));
-  }, [heatmapData, selectedMonth]);
+  const filteredData  = useMemo(() =>
+    selectedMonth ? heatmapData.filter(d => d.date.startsWith(selectedMonth)) : heatmapData,
+    [heatmapData, selectedMonth]
+  );
 
-  // Pad to Mon alignment (use filteredData for display)
-  const displayData = filteredData.length > 0 ? filteredData : heatmapData;
-  const firstDow = (new Date(displayData[0].date).getDay() + 6) % 7;
-  const padded = Array(firstDow).fill(null).concat(displayData);
+  const displayData  = filteredData.length > 0 ? filteredData : heatmapData;
+  const firstDow     = (new Date(displayData[0].date).getDay() + 6) % 7;
+  const padded       = Array(firstDow).fill(null).concat(displayData);
+  const weeks        = [];
+  for (let i = 0; i < padded.length; i += 7) weeks.push(padded.slice(i, i + 7));
 
-  const weeks = [];
-  for (let i = 0; i < padded.length; i += 7) {
-    weeks.push(padded.slice(i, i + 7));
-  }
-
-  // Month labels
   const monthLabels = [];
   let lastMonth = -1;
   weeks.forEach((week, wi) => {
@@ -84,26 +78,25 @@ const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
     }
   });
 
-  // Summary stats
-  const tracked = displayData;
-  const perfect = tracked.filter(d => d.level === 'all');
-  const partial = tracked.filter(d => d.level === 'partial');
-  const missed  = tracked.filter(d => d.level === 'missed');
+  const tracked     = displayData;
+  const perfect     = tracked.filter(d => d.level === 'all');
+  const partial     = tracked.filter(d => d.level === 'partial');
+  const missed      = tracked.filter(d => d.level === 'missed');
   const consistency = tracked.length > 0
-    ? Math.round(((perfect.length + partial.length) / tracked.length) * 100) : 0;
+    ? Math.round(((perfect.length + partial.length) / tracked.length) * 100)
+    : 0;
 
   const getColor = (cell) => {
     if (!cell || cell.date < appStartDate) return 'transparent';
-    if (cell.rate === 0) return colors.backgroundCard;
+    if (cell.rate === 0)   return colors.backgroundCard;
     if (cell.rate <= 0.33) return colors.gold + '33';
     if (cell.rate <= 0.66) return colors.gold + '77';
-    if (cell.rate < 1)    return colors.gold + 'BB';
+    if (cell.rate < 1)     return colors.gold + 'BB';
     return colors.gold;
   };
 
   return (
     <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.lg, marginBottom: Spacing.lg }}>
-      {/* Title + consistency */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <Text style={{ ...Typography.subheadline, color: colors.textPrimary, fontWeight: '700' }}>90-Day Journey</Text>
         <View style={{ backgroundColor: colors.gold + '20', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3 }}>
@@ -111,7 +104,6 @@ const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
         </View>
       </View>
 
-      {/* Summary numbers */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.separator }}>
         <View style={{ alignItems: 'center' }}>
           <Text style={{ fontSize: 20, fontWeight: '700', color: colors.gold }}>{perfect.length + partial.length}</Text>
@@ -129,7 +121,6 @@ const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
         </View>
       </View>
 
-      {/* Month picker */}
       {availableMonths.length > 1 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
           <View style={{ flexDirection: 'row', gap: 6 }}>
@@ -152,19 +143,17 @@ const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
         </ScrollView>
       )}
 
-      {/* Grid */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View>
-          {/* Month labels */}
           <View style={{ height: 14, position: 'relative', marginLeft: 16, width: weeks.length * (CELL + GAP), marginBottom: 2 }}>
             {monthLabels.map((ml, i) => (
               <Text key={i} style={{ position: 'absolute', left: ml.col * (CELL + GAP), fontSize: 9, color: colors.textDim }}>{ml.label}</Text>
             ))}
           </View>
-          {/* Day labels + week columns */}
           <View style={{ flexDirection: 'row' }}>
             <View style={{ width: 12, marginRight: 4 }}>
-              {['M','','W','','F','','S'].map((l, i) => (
+              {/* FIX: was ['M','','W','','F','','S'] */}
+              {['M','T','W','T','F','S','S'].map((l, i) => (
                 <Text key={i} style={{ fontSize: 8, color: colors.textDim, height: CELL + GAP, lineHeight: CELL + GAP, textAlign: 'right' }}>{l}</Text>
               ))}
             </View>
@@ -174,14 +163,8 @@ const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
                   {week.map((cell, di) => {
                     if (!cell) return <View key={di} style={{ width: CELL, height: CELL, marginBottom: GAP }} />;
                     const isToday = cell.date === today;
-                    const bg = getColor(cell);
                     return (
-                      <View key={di} style={{
-                        width: CELL, height: CELL, borderRadius: 2, marginBottom: GAP,
-                        backgroundColor: bg,
-                        borderWidth: isToday ? 1.5 : 0,
-                        borderColor: colors.gold,
-                      }} />
+                      <View key={di} style={{ width: CELL, height: CELL, borderRadius: 2, marginBottom: GAP, backgroundColor: getColor(cell), borderWidth: isToday ? 1.5 : 0, borderColor: colors.gold }} />
                     );
                   })}
                 </View>
@@ -191,14 +174,13 @@ const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
         </View>
       </ScrollView>
 
-      {/* Legend */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginTop: 10 }}>
         <Text style={{ fontSize: 9, color: colors.textDim }}>Legend:</Text>
         {[
-          { color: colors.gold,         label: 'All done' },
-          { color: colors.gold + 'BB',  label: 'Most done' },
-          { color: colors.gold + '55',  label: 'Some done' },
-          { color: colors.backgroundCard, label: 'None', border: true },
+          { color: colors.gold,              label: 'All done' },
+          { color: colors.gold + 'BB',       label: 'Most done' },
+          { color: colors.gold + '55',       label: 'Some done' },
+          { color: colors.backgroundCard,    label: 'None', border: true },
         ].map((l, i) => (
           <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: l.color, borderWidth: l.border ? 1 : 0, borderColor: colors.separator }} />
@@ -208,7 +190,6 @@ const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
         <Text style={{ fontSize: 9, color: colors.gold }}>bordered = today</Text>
       </View>
 
-      {/* Start date */}
       <Text style={{ fontSize: 9, color: colors.textDim, textAlign: 'right', marginTop: 6 }}>
         Tracking since {new Date(appStartDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
       </Text>
@@ -219,34 +200,34 @@ const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
 // ── Main Screen ────────────────────────────────────────────────────────
 const StatsScreen = ({ navigation }) => {
   const { colors } = useTheme();
-  const [data, setData]       = useState(null);
-  const [gamStats, setGamStats] = useState(null);
-  const [insights, setInsights] = useState([]);
-  const [alterEgo, setAlterEgo] = useState('Neel');
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
-  const [tab, setTab]         = useState('overview');
+  const [data,          setData]          = useState(null);
+  const [gamStats,      setGamStats]      = useState(null);
+  const [insights,      setInsights]      = useState([]);
+  const [alterEgo,      setAlterEgo]      = useState('Gagan');
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState(null);
+  const [tab,           setTab]           = useState('overview');
+  const [earnedJourney, setEarnedJourney] = useState([]);
+  // Badges tab: which habit is selected for milestone view
+  const [selectedHabitId, setSelectedHabitId] = useState(null);
 
   useFocusEffect(useCallback(() => { _loadData(); }, []));
 
   const _loadData = async () => {
     try {
       setLoading(true);
-      const db = await getDatabase();
+      const db    = await getDatabase();
       const today = new Date();
 
-      // Build date range from app start to today (not 90 days back blindly)
-      const APP_BIRTH_STR = '2026-05-01';
       const todayStr = today.toISOString().split('T')[0];
-      // dates90 = still used for other queries — we keep it for checkins fetch range
-      const dates90 = [];
+      const dates90  = [];
       for (let i = 89; i >= 0; i--) {
         const d = new Date(today);
         d.setDate(d.getDate() - i);
         dates90.push(d.toISOString().split('T')[0]);
       }
 
-      const habits = await getAllHabits();
+      const habits   = await getAllHabits();
       const checkins = await db.getAllAsync(
         `SELECT date, status, habit_id FROM checkins WHERE date >= ?`,
         [dates90[0]]
@@ -258,19 +239,37 @@ const StatsScreen = ({ navigation }) => {
         checkinMap[c.date].push(c);
       });
 
-      const milestones = await db.getAllAsync('SELECT * FROM milestones ORDER BY achieved_at DESC') || [];
-      const totalDone = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE status IN ('done','resisted')");
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-      const monthDone = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE date >= ? AND status IN ('done','resisted')", [monthStart]);
-      const allStreaks = await Promise.all(habits.map(h => getStreak(h.id)));
-      const bestStreak = allStreaks.reduce((max, s) => s.longest > max ? s.longest : max, 0);
+      const milestones    = await db.getAllAsync('SELECT * FROM milestones ORDER BY achieved_at DESC') || [];
+      const totalDone     = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE status IN ('done','resisted')");
+      const monthStart    = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+      const monthDone     = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE date >= ? AND status IN ('done','resisted')", [monthStart]);
+      const allStreaks     = await Promise.all(habits.map(h => getStreak(h.id)));
+      const bestStreak    = allStreaks.reduce((max, s) => s.longest > max ? s.longest : max, 0);
 
+      // FIX: habit completion rate uses expected days as denominator
       const habitStats = await Promise.all(habits.map(async (h, i) => {
         const streak = allStreaks[i] || { current: 0, longest: 0 };
-        const done = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE habit_id = ? AND status IN ('done','resisted')", [h.id]);
-        const total = await db.getFirstAsync('SELECT COUNT(*) as count FROM checkins WHERE habit_id = ?', [h.id]);
-        const rate = total?.count > 0 ? Math.round(((done?.count || 0) / total.count) * 100) : 0;
-        return { ...h, streak, doneCount: done?.count || 0, rate };
+
+        const done = await db.getFirstAsync(
+          "SELECT COUNT(*) as count FROM checkins WHERE habit_id = ? AND status IN ('done','resisted')",
+          [h.id]
+        );
+        const skipped = await db.getFirstAsync(
+          "SELECT COUNT(*) as count FROM checkins WHERE habit_id = ? AND status IN ('skipped','auto_skipped')",
+          [h.id]
+        );
+
+        const habitBirth     = (h.created_at || APP_BIRTH).split('T')[0];
+        const effectiveStart = habitBirth > APP_BIRTH ? habitBirth : APP_BIRTH;
+        const startD         = new Date(effectiveStart + 'T00:00:00');
+        const daysSince      = Math.floor((today - startD) / 86400000) + 1;
+        const possibleDays   = Math.max(1, daysSince - (skipped?.count || 0));
+        const rate           = Math.min(100, Math.round(((done?.count || 0) / possibleDays) * 100));
+
+        // Per-habit milestones (for badges tab)
+        const habitMilestones = milestones.filter(m => m.habit_id === h.id);
+
+        return { ...h, streak, doneCount: done?.count || 0, rate, habitMilestones };
       }));
 
       const weeks = [];
@@ -283,25 +282,21 @@ const StatsScreen = ({ navigation }) => {
         }
         weeks.push(weekDates);
       }
-
       const weeklyRates = weeks.slice(2).map(weekDates => {
         if (habits.length === 0) return 0;
-        const done = weekDates.reduce((acc, date) => {
-          return acc + (checkinMap[date] || []).filter(c => c.status === 'done' || c.status === 'resisted').length;
-        }, 0);
+        const done = weekDates.reduce((acc, date) =>
+          acc + (checkinMap[date] || []).filter(c => c.status === 'done' || c.status === 'resisted').length
+        , 0);
         return Math.round((done / (habits.length * 7)) * 100);
       });
 
-      // FIX: Find first checkin date (app start date)
-      const firstCheckin = await db.getFirstAsync('SELECT MIN(date) as first_date FROM checkins');
-      const APP_BIRTH = '2026-05-01';
-      const rawStart = firstCheckin?.first_date || APP_BIRTH;
-      const appStartDate = rawStart < APP_BIRTH ? APP_BIRTH : rawStart;
+      const firstCheckin  = await db.getFirstAsync('SELECT MIN(date) as first_date FROM checkins');
+      const rawStart      = firstCheckin?.first_date || APP_BIRTH;
+      const appStartDate  = rawStart < APP_BIRTH ? APP_BIRTH : rawStart;
 
-      // Build heatmap only from appStartDate to today
       const heatmapDates = [];
-      const hd = new Date(appStartDate + 'T00:00:00');
-      const hEnd = new Date(todayStr + 'T00:00:00');
+      const hd   = new Date(appStartDate + 'T00:00:00');
+      const hEnd = new Date(todayStr   + 'T00:00:00');
       while (hd <= hEnd) {
         heatmapDates.push(hd.toISOString().split('T')[0]);
         hd.setDate(hd.getDate() + 1);
@@ -310,27 +305,40 @@ const StatsScreen = ({ navigation }) => {
         const dayC = checkinMap[date] || [];
         const done = dayC.filter(c => c.status === 'done' || c.status === 'resisted').length;
         const rate = habits.length > 0 ? done / habits.length : 0;
-        let level = 'empty';
+        let level  = 'empty';
         if (dayC.length > 0 && rate === 1)  level = 'all';
         else if (dayC.length > 0 && rate > 0) level = 'partial';
-        else if (dayC.length > 0)            level = 'missed';
+        else if (dayC.length > 0)             level = 'missed';
         return { date, rate, level };
       });
 
-      const [gam, ego, ins] = await Promise.all([
+      const [gam, ego, ins, journeyEarned] = await Promise.all([
         getFullStats(),
         getSetting('alter_ego'),
         generateInsights(),
+        getEarnedJourneyBadges(),
       ]);
 
       setData({
-        habits, habitStats, heatmapData, weeklyRates, milestones,
-        totalDone: totalDone?.count || 0, bestStreak,
-        monthDone: monthDone?.count || 0, appStartDate,
+        habits,
+        habitStats,
+        heatmapData,
+        weeklyRates,
+        milestones,
+        totalDone: totalDone?.count || 0,
+        bestStreak,
+        monthDone: monthDone?.count || 0,
+        appStartDate,
       });
       setGamStats(gam);
-      setAlterEgo(ego || 'Neel');
+      setAlterEgo(ego || 'Gagan');
       setInsights(ins);
+      setEarnedJourney(journeyEarned || []);
+
+      // Default habit selected for badges tab
+      if (habitStats.length > 0 && !selectedHabitId) {
+        setSelectedHabitId(habitStats[0].id);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -355,7 +363,14 @@ const StatsScreen = ({ navigation }) => {
     </View>
   );
 
+  // Phase F-3: primary = Karma Title, secondary = XP level
+  const kt        = gamStats?.karmaTitle;
   const levelInfo = gamStats?.levelInfo;
+
+  // Badges tab: selected habit's milestones
+  const selectedHabit = (data?.habitStats || []).find(h => h.id === selectedHabitId);
+  const selectedMilestones = selectedHabit?.habitMilestones || [];
+  const earnedJourneyIds   = new Set(earnedJourney.map(b => b.badge_id));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
@@ -372,10 +387,10 @@ const StatsScreen = ({ navigation }) => {
       {/* Tabs */}
       <View style={[styles.tabBar, { borderBottomColor: colors.separator }]}>
         {[
-          { key: 'overview',  label: '📊 Overview' },
-          { key: 'habits',    label: '✅ Habits' },
-          { key: 'badges',    label: '🏆 Badges' },
-          { key: 'insights',  label: '🧠 Insights' },
+          { key: 'overview', label: '📊 Overview' },
+          { key: 'habits',   label: '✅ Habits' },
+          { key: 'badges',   label: '🏆 Badges' },
+          { key: 'insights', label: '🧠 Insights' },
         ].map(t => (
           <TouchableOpacity
             key={t.key}
@@ -394,29 +409,45 @@ const StatsScreen = ({ navigation }) => {
         {/* ── OVERVIEW ── */}
         {tab === 'overview' && (
           <>
-            {/* Level card */}
-            {levelInfo && (
-              <View style={[styles.levelCard, { backgroundColor: colors.backgroundCard, borderColor: colors.separator }]}>
+            {/* Phase F-3: Karma Title as PRIMARY card */}
+            {kt && (
+              <View style={[styles.karmaCard, { backgroundColor: colors.backgroundCard, borderColor: kt.color + '40' }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
-                  <Text style={{ fontSize: 36 }}>{levelInfo.icon}</Text>
-                  <View>
-                    <Text style={{ ...Typography.headline, color: levelInfo.color }}>Level {levelInfo.level} — {levelInfo.title}</Text>
-                    <Text style={{ ...Typography.caption1, color: colors.textMuted }}>{levelInfo.totalXP} XP earned</Text>
+                  <Text style={{ fontSize: 40 }}>{kt.icon}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: 3 }}>KARMA TITLE</Text>
+                    <Text style={{ ...Typography.title3, color: kt.color, fontWeight: '700' }}>{kt.title}</Text>
+                    <Text style={{ ...Typography.caption1, color: colors.textMuted, marginTop: 2 }}>
+                      Score {gamStats.karmaScore}/1000 · 30-day consistency
+                    </Text>
                   </View>
-                  <View style={{ marginLeft: 'auto', alignItems: 'center' }}>
-                    <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 1 }}>KARMA</Text>
-                    <Text style={{ fontSize: 24, fontWeight: '700', color: colors.blue }}>{gamStats?.karmaScore}</Text>
+                  <View style={{ alignItems: 'center', gap: 2 }}>
+                    <Text style={{ fontSize: 28, fontWeight: '700', color: colors.blue }}>{gamStats.karmaScore}</Text>
                     <Text style={{ ...Typography.caption2, color: colors.textDim }}>/1000</Text>
                   </View>
                 </View>
-                {levelInfo.nextLevel && (
+                {kt.nextTitle && (
                   <View style={{ marginTop: Spacing.md, gap: Spacing.sm }}>
                     <View style={{ height: 6, backgroundColor: colors.backgroundElevated, borderRadius: Radius.full, overflow: 'hidden' }}>
-                      <View style={{ height: '100%', width: `${Math.round(levelInfo.progress * 100)}%`, backgroundColor: levelInfo.color, borderRadius: Radius.full }} />
+                      <View style={{ height: '100%', width: `${Math.round(kt.progress * 100)}%`, backgroundColor: kt.color, borderRadius: Radius.full }} />
                     </View>
                     <Text style={{ ...Typography.caption2, color: colors.textDim, textAlign: 'right' }}>
-                      {Math.round(levelInfo.progress * 100)}% to {levelInfo.nextLevel.icon} {levelInfo.nextLevel.title}
+                      {Math.round(kt.progress * 100)}% → {kt.nextTitle.icon} {kt.nextTitle.title} (Score {kt.nextTitle.minScore}+)
                     </Text>
+                  </View>
+                )}
+
+                {/* XP level as secondary */}
+                {levelInfo && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.md, paddingTop: Spacing.md, borderTopWidth: 1, borderTopColor: colors.separator }}>
+                    <Text style={{ ...Typography.caption1, color: colors.textDim }}>
+                      {levelInfo.icon} {levelInfo.title} · {levelInfo.totalXP} XP lifetime
+                    </Text>
+                    {levelInfo.nextLevel && (
+                      <View style={{ flex: 1, height: 3, backgroundColor: colors.backgroundElevated, borderRadius: Radius.full, overflow: 'hidden' }}>
+                        <View style={{ height: '100%', width: `${Math.round(levelInfo.progress * 100)}%`, backgroundColor: levelInfo.color, borderRadius: Radius.full }} />
+                      </View>
+                    )}
                   </View>
                 )}
               </View>
@@ -425,12 +456,12 @@ const StatsScreen = ({ navigation }) => {
             {/* Stats grid */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.lg }}>
               {[
-                { label: 'TOTAL DONE',    value: String(data?.totalDone || 0),          icon: '✅' },
-                { label: 'BEST STREAK',   value: `${data?.bestStreak || 0}d`,            icon: '🪔' },
-                { label: 'THIS MONTH',    value: String(data?.monthDone || 0),           icon: '🗓' },
-                { label: 'ACTIVE HABITS', value: String(data?.habits?.length || 0),      icon: '☸'  },
-                { label: 'FREEZE LEFT',   value: String(gamStats?.freezeCount || 0),     icon: '🧊' },
-                { label: 'BADGES',        value: String(data?.milestones?.length || 0),  icon: '🏆' },
+                { label: 'TOTAL DONE',    value: String(data?.totalDone || 0), icon: '✅' },
+                { label: 'BEST STREAK',   value: `${data?.bestStreak || 0}d`,  icon: '🪔' },
+                { label: 'THIS MONTH',    value: String(data?.monthDone || 0), icon: '🗓' },
+                { label: 'ACTIVE HABITS', value: String(data?.habits?.length || 0), icon: '☸' },
+                { label: 'FREEZE LEFT',   value: String(gamStats?.freezeCount || 0), icon: '🧊' },
+                { label: 'BADGES',        value: String(data?.milestones?.length || 0), icon: '🏆' },
               ].map((s, i) => (
                 <View key={i} style={{ width: '30.5%', backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.md, alignItems: 'center', gap: 4 }}>
                   <Text style={{ fontSize: 20 }}>{s.icon}</Text>
@@ -446,13 +477,15 @@ const StatsScreen = ({ navigation }) => {
                 <Text style={{ fontSize: 20 }}>🧊</Text>
                 <Text style={{ ...Typography.caption1, color: colors.textDim, flex: 1, lineHeight: 18 }}>
                   <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>{gamStats.freezeCount} streak freeze{gamStats.freezeCount > 1 ? 's' : ''} available.</Text>{' '}
-                  Earned when weekly consistency ≥ 80%. Auto-protects your streak for 1 day when missed.
+                  Earned when weekly consistency ≥ 80%.
                 </Text>
               </View>
             )}
 
             {/* Weekly bars */}
-            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>WEEKLY COMPLETION</Text>
+            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>
+              WEEKLY COMPLETION
+            </Text>
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 130, gap: 6, marginBottom: Spacing.xl }}>
               {(data?.weeklyRates || []).map((rate, i) => {
                 const isLast = i === (data?.weeklyRates?.length || 0) - 1;
@@ -470,7 +503,6 @@ const StatsScreen = ({ navigation }) => {
               })}
             </View>
 
-            {/* FIX #8: Self-explanatory heatmap */}
             <OverviewHeatmap
               heatmapData={data?.heatmapData || []}
               appStartDate={data?.appStartDate || new Date().toISOString().split('T')[0]}
@@ -482,7 +514,12 @@ const StatsScreen = ({ navigation }) => {
         {/* ── HABITS ── */}
         {tab === 'habits' && (
           <>
-            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>HABIT BREAKDOWN</Text>
+            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>
+              HABIT BREAKDOWN
+            </Text>
+            <Text style={{ ...Typography.caption1, color: colors.textDim, marginBottom: Spacing.lg }}>
+              Completion % = done days ÷ expected days (excludes skips)
+            </Text>
             {(data?.habitStats || []).length === 0 && (
               <Text style={{ ...Typography.body, color: colors.textDim, textAlign: 'center', padding: 40 }}>No habits yet.</Text>
             )}
@@ -505,7 +542,9 @@ const StatsScreen = ({ navigation }) => {
                   <View style={{ height: 4, backgroundColor: colors.separator, borderRadius: Radius.full, overflow: 'hidden' }}>
                     <View style={{ height: '100%', width: `${h.rate}%`, backgroundColor: h.color || colors.gold, borderRadius: Radius.full }} />
                   </View>
-                  <Text style={{ ...Typography.caption2, color: colors.textDim }}>{h.rate}% completion · {h.doneCount} total</Text>
+                  <Text style={{ ...Typography.caption2, color: colors.textDim }}>
+                    {h.rate}% · {h.doneCount} done · {h.habitMilestones.length} milestone{h.habitMilestones.length !== 1 ? 's' : ''}
+                  </Text>
                 </View>
                 <Text style={{ ...Typography.title3, color: colors.textDim, fontWeight: '300' }}>›</Text>
               </TouchableOpacity>
@@ -516,21 +555,138 @@ const StatsScreen = ({ navigation }) => {
         {/* ── BADGES ── */}
         {tab === 'badges' && (
           <>
-            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>MILESTONE BADGES</Text>
+            {/* Section 1: Habit Milestones — with habit picker */}
+            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>
+              HABIT MILESTONES
+            </Text>
+
+            {/* Habit selector */}
+            {(data?.habitStats || []).length > 0 ? (
+              <>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.md }}>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {(data?.habitStats || []).map(h => {
+                      const isSelected = h.id === selectedHabitId;
+                      return (
+                        <TouchableOpacity
+                          key={h.id}
+                          style={{
+                            flexDirection: 'row', alignItems: 'center', gap: 6,
+                            paddingHorizontal: 12, paddingVertical: 7,
+                            borderRadius: Radius.full, borderWidth: 1.5,
+                            borderColor:     isSelected ? (h.color || colors.gold) : colors.separator,
+                            backgroundColor: isSelected ? (h.color || colors.gold) + '20' : colors.backgroundCard,
+                          }}
+                          onPress={() => setSelectedHabitId(h.id)}
+                        >
+                          <Text style={{ fontSize: 14 }}>{h.icon}</Text>
+                          <Text style={{
+                            ...Typography.caption1,
+                            color:      isSelected ? (h.color || colors.gold) : colors.textMuted,
+                            fontWeight: isSelected ? '700' : '400',
+                            maxWidth:   90,
+                          }} numberOfLines={1}>{h.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+
+                {/* Selected habit's milestone slots */}
+                {selectedHabit && (
+                  <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.lg, marginBottom: Spacing.xl }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.lg }}>
+                      <Text style={{ fontSize: 20 }}>{selectedHabit.icon}</Text>
+                      <Text style={{ ...Typography.headline, color: colors.textPrimary }}>{selectedHabit.name}</Text>
+                      <View style={{ marginLeft: 'auto', backgroundColor: (selectedHabit.color || colors.gold) + '20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full }}>
+                        <Text style={{ ...Typography.caption2, color: selectedHabit.color || colors.gold, fontWeight: '700' }}>
+                          {selectedMilestones.length}/{MILESTONE_DAYS.length} earned
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, justifyContent: 'space-between' }}>
+                      {MILESTONE_DAYS.map(days => {
+                        const info   = MILESTONE_INFO[days] || {};
+                        const earned = selectedMilestones.find(m => m.milestone_days === days);
+                        const isNext = !earned && !selectedMilestones.find(m => m.milestone_days > days) &&
+                          selectedMilestones.length === MILESTONE_DAYS.indexOf(days);
+                        return (
+                          <View key={days} style={{
+                            width: '30%',
+                            borderRadius: Radius.lg,
+                            borderWidth: earned ? 1.5 : 1,
+                            padding: Spacing.md,
+                            alignItems: 'center',
+                            gap: 4,
+                            backgroundColor: earned ? colors.goldAlpha15 : colors.backgroundElevated,
+                            borderColor:     earned ? colors.gold : colors.separator,
+                            opacity:         earned ? 1 : 0.5,
+                          }}>
+                            <Text style={{ fontSize: 24 }}>{earned ? info.badge : '🔒'}</Text>
+                            <Text style={{ ...Typography.caption1, fontWeight: '700', color: earned ? colors.gold : colors.textDim }}>
+                              {days}d
+                            </Text>
+                            <Text style={{ fontSize: 9, color: colors.textDim, textAlign: 'center' }}>{info.title || ''}</Text>
+                            {earned && (
+                              <Text style={{ fontSize: 8, color: colors.green }}>
+                                ✓ {new Date(earned.achieved_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                              </Text>
+                            )}
+                            {!earned && <Text style={{ fontSize: 8, color: colors.textDim }}>🔒 Locked</Text>}
+                          </View>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ ...Typography.caption2, color: colors.textDim, textAlign: 'center', marginTop: Spacing.md }}>
+                      Tap a habit above to see its milestone progress
+                    </Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              <Text style={{ ...Typography.body, color: colors.textDim, textAlign: 'center', padding: 20 }}>
+                No habits yet. Add habits to unlock milestones.
+              </Text>
+            )}
+
+            {/* Section 2: Journey Badges (overall) */}
+            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.xs }}>
+              JOURNEY BADGES
+            </Text>
+            <Text style={{ ...Typography.caption1, color: colors.textDim, marginBottom: Spacing.md, lineHeight: 18 }}>
+              Overall achievements for your entire karma journey — harder to earn than habit milestones.
+            </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
-              {[3,7,14,21,30,48,60,75,90,180,365].map(days => {
-                const info    = MILESTONE_INFO[days] || {};
-                const earned  = (data?.milestones || []).some(m => m.milestone_days === days);
-                const earnedM = (data?.milestones || []).find(m => m.milestone_days === days);
+              {JOURNEY_BADGES.map(badge => {
+                const earned = earnedJourneyIds.has(badge.id);
+                const earnedRecord = earnedJourney.find(b => b.badge_id === badge.id);
                 return (
-                  <View key={days} style={{ width: '30%', borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.md, alignItems: 'center', gap: 4, backgroundColor: earned ? colors.goldAlpha15 : colors.backgroundCard, borderColor: earned ? colors.goldAlpha40 : colors.separator, opacity: earned ? 1 : 0.4 }}>
-                    <Text style={{ fontSize: 26 }}>{info.badge || '🏆'}</Text>
-                    <Text style={{ ...Typography.caption1, fontWeight: '700', color: earned ? colors.gold : colors.textDim }}>{days} days</Text>
-                    <Text style={{ fontSize: 9, color: colors.textDim, textAlign: 'center' }}>{info.title || ''}</Text>
-                    {earned && earnedM && (
-                      <Text style={{ fontSize: 8, color: colors.green, textAlign: 'center' }}>✓ {DateUtils.formatDate(earnedM.achieved_at?.split('T')[0] || '')}</Text>
+                  <View key={badge.id} style={{
+                    width: '30%',
+                    borderRadius: Radius.lg,
+                    borderWidth: earned ? 1.5 : 1,
+                    padding: Spacing.md,
+                    alignItems: 'center',
+                    gap: 5,
+                    backgroundColor: earned ? colors.blueAlpha15 : colors.backgroundCard,
+                    borderColor:     earned ? colors.blue + '70' : colors.separator,
+                    opacity:         earned ? 1 : 0.45,
+                  }}>
+                    <Text style={{ fontSize: 26 }}>{badge.badge}</Text>
+                    <Text style={{ ...Typography.caption2, fontWeight: '700', color: earned ? colors.blue : colors.textDim, textAlign: 'center' }}>
+                      {badge.title}
+                    </Text>
+                    <Text style={{ fontSize: 8, color: colors.textDim, textAlign: 'center', lineHeight: 12 }}>
+                      {badge.criteria}
+                    </Text>
+                    {earned && earnedRecord && (
+                      <Text style={{ fontSize: 8, color: colors.green, fontWeight: '700' }}>
+                        ✓ {new Date(earnedRecord.achieved_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                      </Text>
                     )}
-                    {!earned && <Text style={{ fontSize: 9, color: colors.textDim }}>🔒 Locked</Text>}
+                    {!earned && (
+                      <Text style={{ fontSize: 8, color: colors.textDim }}>🔒</Text>
+                    )}
                   </View>
                 );
               })}
@@ -546,7 +702,7 @@ const StatsScreen = ({ navigation }) => {
                 <Text style={{ fontSize: 56 }}>🧠</Text>
                 <Text style={{ ...Typography.title3, color: colors.textSecondary, textAlign: 'center' }}>Krishna is watching</Text>
                 <Text style={{ ...Typography.body, color: colors.textDim, textAlign: 'center', lineHeight: 26 }}>
-                  After 7 days of tracking, Karma will reveal your patterns — your weak days, your triggers, your energy-discipline connection.{'\n\n'}
+                  After 5 days of tracking, Karma will reveal your patterns — your weak days, your triggers, your energy-discipline connection.{'\n\n'}
                   Log your habits. Let the data build.
                 </Text>
                 <View style={{ backgroundColor: colors.goldAlpha15, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.goldAlpha25, padding: Spacing.lg, width: '100%' }}>
@@ -558,7 +714,9 @@ const StatsScreen = ({ navigation }) => {
               </View>
             ) : (
               <>
-                <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.lg }}>KRISHNA SPEAKS — YOUR PATTERNS</Text>
+                <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.lg }}>
+                  KRISHNA SPEAKS — YOUR PATTERNS
+                </Text>
                 {insights.map((ins, i) => (
                   <View key={i} style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: ins.color ? ins.color + '30' : colors.separator, borderLeftWidth: 4, borderLeftColor: ins.color || colors.gold, padding: Spacing.xl, marginBottom: Spacing.md, gap: Spacing.sm }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
@@ -585,10 +743,10 @@ const StatsScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, borderBottomWidth: 1 },
-  tabBar: { flexDirection: 'row', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, gap: Spacing.sm, borderBottomWidth: 1 },
-  tabBtn: { flex: 1, paddingVertical: 8, borderRadius: Spacing.sm, borderWidth: 1, alignItems: 'center' },
-  levelCard: { borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.xl, marginBottom: Spacing.lg },
+  header:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, borderBottomWidth: 1 },
+  tabBar:    { flexDirection: 'row', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, gap: Spacing.sm, borderBottomWidth: 1 },
+  tabBtn:    { flex: 1, paddingVertical: 8, borderRadius: Spacing.sm, borderWidth: 1, alignItems: 'center' },
+  karmaCard: { borderRadius: Radius.lg, borderWidth: 1.5, padding: Spacing.xl, marginBottom: Spacing.lg },
 });
 
 export default StatsScreen;
