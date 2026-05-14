@@ -1,47 +1,38 @@
-// ─── KARMA APP — HABITSERVICE PHASE F-1 ADDITIONS ────────────────────
-// ONLY the changed/added parts compared to the current Phase E file.
-// Apply these changes to the existing habitService.js:
-//
-// 1. Remove _calcEditXPDelta function entirely
-// 2. Replace _calcEditXPDelta(oldStatus, newStatus) call in editPastCheckin
-//    with calculateCheckinXP(oldStatus, newStatus) — already imported
-// 3. Add setHabitCategory() function
-// 4. Add getHabitsWithoutCategory() function
-// 5. In createHabit INSERT, add category to column list and values
-//
-// The full complete file is below — replace your existing habitService.js
-// ─────────────────────────────────────────────────────────────────────
+// ─── KARMA APP — HABIT SERVICE (PHASE F — COMPLETE) ──────────────────
+// Includes Phase E + F-1 + timezone fix
+// TIMEZONE FIX: all toISOString() replaced with local-date helpers (IST safe)
+// XP FIX: Math.max(0,...) removed — XP can go negative as intended
+// Phase E: is_paused filter, auto_skipped status, pause/resume functions
+// Phase F-1: category column, setHabitCategory, getHabitsWithoutCategory
 
-// ─── KARMA APP — HABIT SERVICE (PHASE F-1) ────────────────────────────
-// Changes from Phase E:
-// - editPastCheckin: uses calculateCheckinXP (single source of truth) — removed _calcEditXPDelta
-// - createHabit: stores category column
-// - NEW: setHabitCategory(habitId, category) — for SIP migration and edit habit
-// - NEW: getHabitsWithoutCategory() — used in App.js to check if SIP migration needed
+import { getDatabase }        from './database';
+import { calculateCheckinXP } from '../services/gamificationService';
 
-import { getDatabase }          from './database';
-import { calculateCheckinXP }   from '../services/gamificationService';
+// ── Timezone-safe date helpers ────────────────────────────────────────
+// toISOString() returns UTC — in IST (UTC+5:30) this gives YESTERDAY before 5:30 AM
+// Fix: use getFullYear/getMonth/getDate which use LOCAL time
+const _localDate = (d) => {
+  const y  = d.getFullYear();
+  const m  = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+};
 
-// ── Helpers ───────────────────────────────────────────────────────────
-
-const getTodayDate  = () => new Date().toISOString().split('T')[0];
+const getTodayDate  = () => _localDate(new Date());
 
 const getDateString = (date) => {
   if (typeof date === 'string') return date.split('T')[0];
-  return date.toISOString().split('T')[0];
+  return _localDate(date);
 };
 
 // ── Validation ────────────────────────────────────────────────────────
-
 const validateHabitInput = (habit) => {
   if (!habit) throw new Error('Habit data is required');
   const name = habit.name?.trim() || '';
   if (name.length === 0) throw new Error("Habit name can't be empty");
   if (name.length < 3)   throw new Error('Habit name must be at least 3 characters');
   if (name.length > 50)  throw new Error('Habit name must be under 50 characters');
-  if (!['build','break'].includes(habit.type)) {
-    throw new Error('Habit type must be build or break');
-  }
+  if (!['build','break'].includes(habit.type)) throw new Error('Habit type must be build or break');
 };
 
 // ── HABITS CRUD ───────────────────────────────────────────────────────
@@ -63,9 +54,7 @@ export const getHabitById = async (id) => {
   if (!id) throw new Error('Habit ID is required');
   try {
     const db    = await getDatabase();
-    const habit = await db.getFirstAsync(
-      'SELECT * FROM habits WHERE id = ? AND is_active = 1', [id]
-    );
+    const habit = await db.getFirstAsync('SELECT * FROM habits WHERE id = ? AND is_active = 1', [id]);
     if (!habit) throw new Error('Habit not found');
     return habit;
   } catch (error) {
@@ -86,6 +75,7 @@ export const createHabit = async (habit) => {
 
     const count  = await db.getFirstAsync('SELECT COUNT(*) as count FROM habits WHERE is_active = 1');
     const now    = new Date().toISOString();
+
     const result = await db.runAsync(
       `INSERT INTO habits (
         name, icon, color, type, frequency, days,
@@ -103,21 +93,21 @@ export const createHabit = async (habit) => {
         habit.icon   || '⭐',
         habit.color  || '#1E7FFF',
         habit.type,
-        habit.frequency     || 'daily',
-        habit.days          || '1,2,3,4,5,6,7',
-        habit.time_of_day   || 'anytime',
+        habit.frequency      || 'daily',
+        habit.days           || '1,2,3,4,5,6,7',
+        habit.time_of_day    || 'anytime',
         habit.is_quantifiable ? 1 : 0,
         parseFloat(habit.daily_target)  || 1,
-        habit.unit          || '',
-        habit.frequency_type|| 'daily',
+        habit.unit           || '',
+        habit.frequency_type || 'daily',
         parseInt(habit.weekly_target)   || 7,
-        habit.is_wfo_skip   ? 1 : 0,
-        habit.reminder_time || null,
-        habit.reminder_type || 'none',
-        habit.goal_days     || 0,
+        habit.is_wfo_skip    ? 1 : 0,
+        habit.reminder_time  || null,
+        habit.reminder_type  || 'none',
+        habit.goal_days      || 0,
         habit.punishment_sensitivity || 'balanced',
-        habit.category      || null,  // Phase F-1
-        count?.count        || 0,
+        habit.category       || null,
+        count?.count         || 0,
         now, now,
       ]
     );
@@ -189,12 +179,9 @@ export const archiveHabit = async (id) => {
   try {
     const db = await getDatabase();
     await db.runAsync(
-      `UPDATE habits SET is_active = 0, updated_at = datetime('now','localtime') WHERE id = ?`,
-      [id]
+      `UPDATE habits SET is_active = 0, updated_at = datetime('now','localtime') WHERE id = ?`, [id]
     );
-  } catch (error) {
-    throw new Error(`Couldn't archive habit: ${error.message}`);
-  }
+  } catch (error) { throw new Error(`Couldn't archive habit: ${error.message}`); }
 };
 
 export const reorderHabits = async (orderedIds) => {
@@ -204,32 +191,23 @@ export const reorderHabits = async (orderedIds) => {
     for (let i = 0; i < orderedIds.length; i++) {
       await db.runAsync('UPDATE habits SET sort_order = ? WHERE id = ?', [i, orderedIds[i]]);
     }
-  } catch (error) {
-    throw new Error(`Couldn't reorder habits: ${error.message}`);
-  }
+  } catch (error) { throw new Error(`Couldn't reorder habits: ${error.message}`); }
 };
 
 // ── CATEGORY (Phase F-1) ──────────────────────────────────────────────
-
-// Set SIP category for a habit (used by SIPMigrationScreen and EditHabit)
 export const setHabitCategory = async (habitId, category) => {
   if (!habitId) throw new Error('Habit ID required');
-  const validCategories = ['spiritual', 'intellectual', 'physical', 'conscious'];
-  if (!validCategories.includes(category)) {
-    throw new Error(`Invalid category. Must be one of: ${validCategories.join(', ')}`);
-  }
+  const valid = ['spiritual','intellectual','physical','conscious'];
+  if (!valid.includes(category)) throw new Error(`Invalid category`);
   try {
     const db = await getDatabase();
     await db.runAsync(
       `UPDATE habits SET category = ?, updated_at = datetime('now','localtime') WHERE id = ?`,
       [category, habitId]
     );
-  } catch (e) {
-    throw new Error(`Couldn't set category: ${e.message}`);
-  }
+  } catch (e) { throw new Error(`Couldn't set category: ${e.message}`); }
 };
 
-// Returns habits with no category — used to check if SIP migration is needed
 export const getHabitsWithoutCategory = async () => {
   try {
     const db = await getDatabase();
@@ -240,25 +218,20 @@ export const getHabitsWithoutCategory = async () => {
 };
 
 // ── PAUSE / RESUME (Phase E) ──────────────────────────────────────────
-
 export const getPausedHabits = async () => {
   try {
     const db = await getDatabase();
     return await db.getAllAsync(
       `SELECT * FROM habits WHERE is_active = 1 AND is_paused = 1 ORDER BY name`
     ) || [];
-  } catch (e) {
-    console.error('getPausedHabits:', e.message);
-    return [];
-  }
+  } catch (e) { return []; }
 };
 
 export const pauseHabit = async (habitId) => {
   try {
     const db = await getDatabase();
     await db.runAsync(
-      `UPDATE habits SET is_paused = 1, updated_at = datetime('now','localtime') WHERE id = ?`,
-      [habitId]
+      `UPDATE habits SET is_paused = 1, updated_at = datetime('now','localtime') WHERE id = ?`, [habitId]
     );
   } catch (e) { throw new Error(`Couldn't pause: ${e.message}`); }
 };
@@ -267,29 +240,24 @@ export const resumeHabit = async (habitId) => {
   try {
     const db = await getDatabase();
     await db.runAsync(
-      `UPDATE habits SET is_paused = 0, updated_at = datetime('now','localtime') WHERE id = ?`,
-      [habitId]
+      `UPDATE habits SET is_paused = 0, updated_at = datetime('now','localtime') WHERE id = ?`, [habitId]
     );
   } catch (e) { throw new Error(`Couldn't resume: ${e.message}`); }
 };
 
 // ── AUTO-SKIP (Phase E) ───────────────────────────────────────────────
-
 export const getHabitsForAutoSkip = async () => {
   try {
     const db = await getDatabase();
-    return await db.getAllAsync(
-      `SELECT * FROM habits WHERE is_active = 1 AND is_paused = 0`
-    ) || [];
-  } catch (e) { return []; }
+    return await db.getAllAsync(`SELECT * FROM habits WHERE is_active = 1 AND is_paused = 0`) || [];
+  } catch { return []; }
 };
 
 export const getCheckinForDate = async (habitId, date) => {
   try {
     const db = await getDatabase();
     return await db.getFirstAsync(
-      `SELECT * FROM checkins WHERE habit_id = ? AND date = ?`,
-      [habitId, date]
+      `SELECT * FROM checkins WHERE habit_id = ? AND date = ?`, [habitId, date]
     ) || null;
   } catch { return null; }
 };
@@ -306,14 +274,11 @@ export const insertAutoSkipCheckin = async (habitId, date) => {
 };
 
 // ── CHECKINS ──────────────────────────────────────────────────────────
-
 export const getTodayCheckins = async () => {
   try {
     const db = await getDatabase();
-    return await db.getAllAsync(
-      'SELECT * FROM checkins WHERE date = ?', [getTodayDate()]
-    ) || [];
-  } catch (error) { throw new Error(`Couldn't load checkins: ${error.message}`); }
+    return await db.getAllAsync('SELECT * FROM checkins WHERE date = ?', [getTodayDate()]) || [];
+  } catch (error) { throw new Error(`Couldn't load today's check-ins: ${error.message}`); }
 };
 
 export const getCheckinsForHabit = async (habitId, limit = 90) => {
@@ -321,29 +286,26 @@ export const getCheckinsForHabit = async (habitId, limit = 90) => {
   try {
     const db = await getDatabase();
     return await db.getAllAsync(
-      `SELECT * FROM checkins WHERE habit_id = ? ORDER BY date DESC LIMIT ?`,
-      [habitId, limit]
+      `SELECT * FROM checkins WHERE habit_id = ? ORDER BY date DESC LIMIT ?`, [habitId, limit]
     ) || [];
-  } catch (error) { throw new Error(`Couldn't load history: ${error.message}`); }
+  } catch (error) { throw new Error(`Couldn't load habit history: ${error.message}`); }
 };
 
+// Phase E: auto_skipped added. Phase F: XP not capped at 0
 export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
   if (!habitId) throw new Error('Habit ID required for check-in');
   const validStatuses = ['done','missed','slip','resisted','skipped','auto_skipped'];
   if (!validStatuses.includes(status)) throw new Error(`Invalid status "${status}"`);
-  if (note && note.length > 300) throw new Error('Note must be under 300 characters');
-
+  if (note && note.length > 300)       throw new Error('Note must be under 300 characters');
   try {
     const db    = await getDatabase();
-    const today = getTodayDate();
+    const today = getTodayDate();  // TIMEZONE FIX: uses local date
 
     const existing = await db.getFirstAsync(
-      'SELECT status FROM checkins WHERE habit_id = ? AND date = ?',
-      [habitId, today]
+      'SELECT status FROM checkins WHERE habit_id = ? AND date = ?', [habitId, today]
     );
     const previousStatus = existing?.status || null;
 
-    // Guard: don't double-award positive XP
     const xpAlreadyAwarded = await db.getFirstAsync(
       `SELECT id FROM xp_log WHERE habit_id = ? AND date(date) = ? AND xp > 0 LIMIT 1`,
       [habitId, today]
@@ -359,7 +321,6 @@ export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
       [habitId, today, status, note, slipCount]
     );
 
-    // Phase F-1: calculateCheckinXP is now the single source of truth
     const xpChange = calculateCheckinXP(previousStatus, status);
     if (xpChange !== 0) {
       const shouldApply = xpChange < 0 || !xpAlreadyAwarded;
@@ -380,14 +341,14 @@ export const checkIn = async (habitId, status, note = null, slipCount = 0) => {
   }
 };
 
-// XP can go negative — no floor
+// XP FIX: Math.max(0,...) removed — XP can go negative
 const awardXPForHabit = async (habitId, amount, reason) => {
   if (!amount || amount === 0) return 0;
   try {
     const db        = await getDatabase();
     const current   = await getSetting('total_xp');
     const currentXP = parseInt(current || '0');
-    const newXP     = currentXP + amount;
+    const newXP     = currentXP + amount;  // NO Math.max — XP can be negative
     await setSetting('total_xp', String(newXP));
     await db.runAsync(
       'INSERT INTO xp_log (habit_id, xp, reason, date) VALUES (?, ?, ?, datetime("now","localtime"))',
@@ -395,54 +356,63 @@ const awardXPForHabit = async (habitId, amount, reason) => {
     );
     return newXP;
   } catch (error) {
-    console.warn('awardXPForHabit:', error.message);
+    console.warn('awardXPForHabit error:', error.message);
     return 0;
   }
 };
 
-// ── EDIT PAST CHECKIN — with XP correction ────────────────────────────
-// Phase F-1: uses calculateCheckinXP (removed _calcEditXPDelta)
+// ── EDIT PAST CHECKIN with XP correction ─────────────────────────────
+const _calcEditXPDelta = (oldStatus, newStatus) => {
+  const DONE_XP = 1, RES_XP = 2, AUTOSKIP_PENALTY = 2;
+  const wasAutoSkip = oldStatus === 'auto_skipped';
+  const wasDone     = oldStatus === 'done';
+  const wasResisted = oldStatus === 'resisted';
+  const nowDone     = newStatus === 'done';
+  const nowResisted = newStatus === 'resisted';
+  const nowPositive = nowDone || nowResisted;
+  const wasPositive = wasDone || wasResisted;
+  if (wasAutoSkip) {
+    if (nowDone)     return AUTOSKIP_PENALTY + DONE_XP;
+    if (nowResisted) return AUTOSKIP_PENALTY + RES_XP;
+    return AUTOSKIP_PENALTY;
+  }
+  if (wasPositive && !nowPositive) return wasDone ? -DONE_XP : -RES_XP;
+  if (!wasPositive && nowPositive) return nowDone ? DONE_XP : RES_XP;
+  if (wasDone && nowResisted) return RES_XP - DONE_XP;
+  if (wasResisted && nowDone) return DONE_XP - RES_XP;
+  return 0;
+};
+
 export const editPastCheckin = async (habitId, date, newStatus, note = null) => {
   if (!habitId) throw new Error('Habit ID required');
   if (!date)    throw new Error('Date required');
-
-  const target   = new Date(date);
+  const target   = new Date(date + 'T00:00:00');
   const today    = new Date();
   const diffDays = Math.floor((today - target) / 86400000);
-
   if (diffDays > 3) throw new Error("Can't edit check-ins older than 3 days");
   if (diffDays < 0) throw new Error("Can't edit future dates");
-
   try {
     const db      = await getDatabase();
     const dateStr = getDateString(date);
-
-    const existing  = await db.getFirstAsync(
-      'SELECT status FROM checkins WHERE habit_id = ? AND date = ?',
-      [habitId, dateStr]
+    const existing = await db.getFirstAsync(
+      'SELECT status FROM checkins WHERE habit_id = ? AND date = ?', [habitId, dateStr]
     );
     const oldStatus = existing?.status || null;
-
     await db.runAsync(
       `INSERT INTO checkins (habit_id, date, status, note, slip_count)
        VALUES (?, ?, ?, ?, 0)
-       ON CONFLICT(habit_id, date) DO UPDATE SET
-         status = excluded.status,
-         note   = excluded.note`,
+       ON CONFLICT(habit_id, date) DO UPDATE SET status = excluded.status, note = excluded.note`,
       [habitId, dateStr, newStatus, note]
     );
-
-    // Phase F-1: single source of truth for XP delta
-    const xpDelta = calculateCheckinXP(oldStatus, newStatus);
+    const xpDelta = _calcEditXPDelta(oldStatus, newStatus);
     if (xpDelta !== 0) {
       const habitData = await db.getFirstAsync('SELECT name FROM habits WHERE id = ?', [habitId]);
-      const habitName = habitData?.name || `Habit #${habitId}`;
       const current   = await getSetting('total_xp');
       const newXP     = parseInt(current || '0') + xpDelta;
       await setSetting('total_xp', String(newXP));
       await db.runAsync(
         'INSERT INTO xp_log (habit_id, xp, reason, date) VALUES (?, ?, ?, ?)',
-        [habitId, xpDelta, `Edit: ${habitName} ${oldStatus || 'none'} → ${newStatus}`, dateStr]
+        [habitId, xpDelta, `Edit: ${habitData?.name || ''} ${oldStatus || 'none'} → ${newStatus}`, dateStr]
       );
     }
   } catch (error) {
@@ -452,24 +422,21 @@ export const editPastCheckin = async (habitId, date, newStatus, note = null) => 
 };
 
 // ── STREAKS ───────────────────────────────────────────────────────────
-
 export const getStreak = async (habitId) => {
   if (!habitId) return { current: 0, longest: 0 };
   try {
     const db    = await getDatabase();
     const habit = await db.getFirstAsync('SELECT type, created_at FROM habits WHERE id = ?', [habitId]);
     if (!habit) return { current: 0, longest: 0 };
-
     const rows = await db.getAllAsync(
-      `SELECT date, status FROM checkins WHERE habit_id = ? ORDER BY date DESC LIMIT 400`,
-      [habitId]
+      `SELECT date, status FROM checkins WHERE habit_id = ? ORDER BY date DESC LIMIT 400`, [habitId]
     );
     if (!rows || rows.length === 0) return { current: 0, longest: 0 };
 
     const statusMap = {};
     rows.forEach(r => { statusMap[r.date] = r.status; });
 
-    const today       = getTodayDate();
+    const today       = getTodayDate();  // TIMEZONE FIX
     const createdDate = new Date(habit.created_at || today);
     createdDate.setHours(0, 0, 0, 0);
 
@@ -480,7 +447,7 @@ export const getStreak = async (habitId) => {
     d.setHours(0, 0, 0, 0);
 
     while (true) {
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = _localDate(d);  // TIMEZONE FIX: was d.toISOString().split('T')[0]
       const status  = statusMap[dateStr];
 
       if (d < createdDate) break;
@@ -496,14 +463,13 @@ export const getStreak = async (habitId) => {
         tempStreak = 0;
       } else {
         if (dateStr === today) {
-          // Not yet logged today — fine
+          // Today not yet logged — fine
         } else {
           if (isCurrentStreak) isCurrentStreak = false;
           if (tempStreak > longest) longest = tempStreak;
           tempStreak = 0;
         }
       }
-
       d.setDate(d.getDate() - 1);
       if (tempStreak > 1000) break;
     }
@@ -511,7 +477,7 @@ export const getStreak = async (habitId) => {
     if (tempStreak > longest) longest = tempStreak;
     return { current, longest };
   } catch (error) {
-    console.warn('getStreak:', error.message);
+    console.warn('getStreak error:', error.message);
     return { current: 0, longest: 0 };
   }
 };
@@ -521,14 +487,16 @@ export const getWeeklyCompletionRate = async (habitId) => {
   try {
     const db          = await getDatabase();
     const today       = new Date();
-    const dow         = today.getDay();
-    const daysFromMon = dow === 0 ? 6 : dow - 1;
+    const dayOfWeek   = today.getDay();
+    const daysFromMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     const monday      = new Date(today);
     monday.setDate(today.getDate() - daysFromMon);
-    const fromDate    = monday.toISOString().split('T')[0];
-    const todayDate   = today.toISOString().split('T')[0];
+
+    const fromDate    = _localDate(monday);  // TIMEZONE FIX
+    const todayDate   = _localDate(today);   // TIMEZONE FIX
     const daysElapsed = daysFromMon + 1;
-    const done        = await db.getFirstAsync(
+
+    const done = await db.getFirstAsync(
       `SELECT COUNT(*) as count FROM checkins
        WHERE habit_id = ? AND date >= ? AND date <= ? AND status IN ('done','resisted')`,
       [habitId, fromDate, todayDate]
@@ -540,14 +508,13 @@ export const getWeeklyCompletionRate = async (habitId) => {
 };
 
 // ── PUNISHMENT ────────────────────────────────────────────────────────
-
 export const getPunishmentLevel = async (habitId) => {
   if (!habitId) return 0;
   try {
     const db          = await getDatabase();
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const fromDate    = sevenDaysAgo.toISOString().split('T')[0];
+    const fromDate    = _localDate(sevenDaysAgo);  // TIMEZONE FIX
     const slips       = await db.getFirstAsync(
       `SELECT COUNT(*) as count FROM checkins WHERE habit_id = ? AND status = 'slip' AND date >= ?`,
       [habitId, fromDate]
@@ -562,16 +529,13 @@ export const getPunishmentLevel = async (habitId) => {
 };
 
 // ── SETTINGS ──────────────────────────────────────────────────────────
-
 export const getSetting = async (key) => {
   if (!key) throw new Error('Setting key required');
   try {
     const db  = await getDatabase();
     const row = await db.getFirstAsync('SELECT value FROM settings WHERE key = ?', [key]);
     return row?.value ?? null;
-  } catch (error) {
-    throw new Error(`Couldn't read "${key}": ${error.message}`);
-  }
+  } catch (error) { throw new Error(`Couldn't read "${key}": ${error.message}`); }
 };
 
 export const setSetting = async (key, value) => {
@@ -579,13 +543,8 @@ export const setSetting = async (key, value) => {
   if (value === undefined || value === null) throw new Error(`Value for "${key}" cannot be null`);
   try {
     const db = await getDatabase();
-    await db.runAsync(
-      'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
-      [key, String(value)]
-    );
-  } catch (error) {
-    throw new Error(`Couldn't save "${key}": ${error.message}`);
-  }
+    await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, String(value)]);
+  } catch (error) { throw new Error(`Couldn't save "${key}": ${error.message}`); }
 };
 
 export const getAllSettings = async () => {
@@ -597,12 +556,9 @@ export const getAllSettings = async () => {
 };
 
 // ── STATS ─────────────────────────────────────────────────────────────
-
 export const getTotalXP = async () => {
-  try {
-    const xp = await getSetting('total_xp');
-    return parseInt(xp || '0');
-  } catch { return 0; }
+  try { return parseInt((await getSetting('total_xp')) || '0'); }
+  catch { return 0; }
 };
 
 export const getOverallStats = async () => {
@@ -611,10 +567,7 @@ export const getOverallStats = async () => {
     const today = getTodayDate();
     const [totalHabits, todayDone, totalXPVal] = await Promise.all([
       db.getFirstAsync("SELECT COUNT(*) as count FROM habits WHERE is_active = 1 AND is_paused = 0"),
-      db.getFirstAsync(
-        "SELECT COUNT(*) as count FROM checkins WHERE date = ? AND status IN ('done','resisted')",
-        [today]
-      ),
+      db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE date = ? AND status IN ('done','resisted')", [today]),
       getTotalXP(),
     ]);
     return {
@@ -626,7 +579,6 @@ export const getOverallStats = async () => {
 };
 
 // ── EXPORT ────────────────────────────────────────────────────────────
-
 export const exportAllData = async () => {
   try {
     const db = await getDatabase();
@@ -639,11 +591,8 @@ export const exportAllData = async () => {
       db.getAllAsync('SELECT * FROM journey_milestones'),
     ]);
     return {
-      version:     3,
-      exported_at: new Date().toISOString(),
+      version: 3, exported_at: new Date().toISOString(),
       habits, checkins, settings, milestones, xpLog, journeyMilestones,
     };
-  } catch (error) {
-    throw new Error(`Export failed: ${error.message}`);
-  }
+  } catch (error) { throw new Error(`Export failed: ${error.message}`); }
 };
