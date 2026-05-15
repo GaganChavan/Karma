@@ -222,7 +222,7 @@ export default function App() {
       const sipDone = await getSetting('sip_migration_done');
       if (sipDone !== 'true') {
         const { getDatabase: getDB } = require('./src/database/database');
-        const db     = await getDB();
+        const db = await getDatabase();
         const unhcategorised = await db.getFirstAsync(
           "SELECT id FROM habits WHERE is_active = 1 AND category IS NULL LIMIT 1"
         );
