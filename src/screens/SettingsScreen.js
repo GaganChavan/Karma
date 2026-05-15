@@ -386,13 +386,13 @@ const SettingsScreen = ({ navigation }) => {
             <Switch value={notifEnabled} onValueChange={_toggleNotif} trackColor={{ false: colors.separator, true: colors.goldAlpha40 }} thumbColor={notifEnabled ? colors.gold : colors.textMuted} />
           </View>
           <View style={s.separator} />
-//        <TouchableOpacity style={s.row} onPress={() => navigation.navigate('NotificationSettings')}>
-//          <View>
-//            <Text style={s.rowLabel}>Configure Notifications</Text>
-//            <Text style={s.rowDesc}>Times, messages, days of week</Text>
-//          </View>
-//          <Text style={s.rowArrow}>›</Text>
-//        </TouchableOpacity>
+          <TouchableOpacity style={s.row} onPress={() => navigation.navigate('NotificationSettings')}>
+            <View>
+              <Text style={s.rowLabel}>Configure Notifications</Text>
+              <Text style={s.rowDesc}>Times, messages, days of week</Text>
+            </View>
+            <Text style={s.rowArrow}>›</Text>
+          </TouchableOpacity>
         </View>
 
         {/* WHATSAPP */}
