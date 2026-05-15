@@ -325,6 +325,16 @@ const HabitDetailScreen = ({ navigation, route }) => {
            created_at = datetime('now','localtime')`,
         [habitId, DateUtils.today(), status, newSlips, value]
       );
+      const xpDelta = calculateCheckinXP(prev, status);
+      if (xpDelta !== 0) {
+        const today = DateUtils.today();
+        const xpGuard = await db.getFirstAsync(
+          'SELECT id FROM xp_log WHERE habit_id = ? AND date(date) = ? AND xp > 0 LIMIT 1',[habitId, today]
+        );
+        if (xpDelta < 0 || !xpGuard) {
+          await awardXP(xpDelta, `${habit?.name || 'habit'} — ${status}`, habitId);
+        }
+      }
       const ns = await getStreak(habitId);
       setStreak(ns);
 
