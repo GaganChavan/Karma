@@ -1,13 +1,20 @@
-// ─── KARMA APP — MOOD & TRIGGER SERVICE (PHASE B) ────────────────────
-// Mood/energy logging, slip trigger recording, pattern analysis.
-// Weekly reflection CRUD.
+// ─── KARMA APP — MOOD & TRIGGER SERVICE (TIMEZONE FIX) ───────────────
+// TIMEZONE FIX: all toISOString() replaced with _localDate()
+// Affected: getTodayDate, getWeekMoodAverage, getTriggersForHabit,
+//   getOverallTriggerPattern, saveWeeklyReflection, getThisWeekReflection
 
 import { getDatabase } from './database';
 
-const getTodayDate = () => new Date().toISOString().split('T')[0];
+// ── Timezone-safe helpers ─────────────────────────────────────────────
+const _localDate = (d) => {
+  const y  = d.getFullYear();
+  const m  = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+};
+const getTodayDate = () => _localDate(new Date());  // FIX: was toISOString()
 
 // ── MOOD LOGGING ──────────────────────────────────────────────────────
-
 export const logMood = async ({ timeOfDay, mood, energy, note = null }) => {
   if (!['morning', 'evening'].includes(timeOfDay)) {
     throw new Error('timeOfDay must be morning or evening');
@@ -15,11 +22,9 @@ export const logMood = async ({ timeOfDay, mood, energy, note = null }) => {
   if (mood < 1 || mood > 5 || energy < 1 || energy > 5) {
     throw new Error('Mood and energy must be between 1 and 5');
   }
-
   try {
     const db    = await getDatabase();
     const today = getTodayDate();
-
     await db.runAsync(
       `INSERT INTO mood_logs (date, time_of_day, mood, energy, note)
        VALUES (?, ?, ?, ?, ?)
@@ -29,8 +34,6 @@ export const logMood = async ({ timeOfDay, mood, energy, note = null }) => {
          note   = excluded.note`,
       [today, timeOfDay, mood, energy, note]
     );
-
-    console.log(`✅ Mood logged: ${timeOfDay} — mood:${mood} energy:${energy}`);
   } catch (error) {
     if (error.message.includes('must be')) throw error;
     throw new Error(`Mood log failed: ${error.message}`);
@@ -41,16 +44,11 @@ export const getTodayMood = async () => {
   try {
     const db    = await getDatabase();
     const today = getTodayDate();
-    const rows  = await db.getAllAsync(
-      'SELECT * FROM mood_logs WHERE date = ?',
-      [today]
-    );
+    const rows  = await db.getAllAsync('SELECT * FROM mood_logs WHERE date = ?', [today]);
     const result = { morning: null, evening: null };
     rows.forEach(r => { result[r.time_of_day] = r; });
     return result;
-  } catch (error) {
-    return { morning: null, evening: null };
-  }
+  } catch { return { morning: null, evening: null }; }
 };
 
 export const getMoodForDateRange = async (fromDate, toDate) => {
@@ -60,43 +58,36 @@ export const getMoodForDateRange = async (fromDate, toDate) => {
       'SELECT * FROM mood_logs WHERE date >= ? AND date <= ? ORDER BY date ASC',
       [fromDate, toDate]
     ) || [];
-  } catch (error) {
-    return [];
-  }
+  } catch { return []; }
 };
 
 export const getWeekMoodAverage = async () => {
   try {
-    const db = await getDatabase();
+    const db           = await getDatabase();
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const fromDate = sevenDaysAgo.toISOString().split('T')[0];
-
-    const result = await db.getFirstAsync(
-      `SELECT AVG(mood) as avgMood, AVG(energy) as avgEnergy
-       FROM mood_logs WHERE date >= ?`,
+    const fromDate = _localDate(sevenDaysAgo);  // FIX: was toISOString()
+    const result   = await db.getFirstAsync(
+      `SELECT AVG(mood) as avgMood, AVG(energy) as avgEnergy FROM mood_logs WHERE date >= ?`,
       [fromDate]
     );
     return {
       avgMood:   Math.round((result?.avgMood   || 0) * 10) / 10,
       avgEnergy: Math.round((result?.avgEnergy || 0) * 10) / 10,
     };
-  } catch (error) {
-    return { avgMood: 0, avgEnergy: 0 };
-  }
+  } catch { return { avgMood: 0, avgEnergy: 0 }; }
 };
 
 // ── SLIP TRIGGERS ─────────────────────────────────────────────────────
-
 export const TRIGGER_OPTIONS = [
-  { key: 'stress',    label: 'Stress',      icon: '😤', color: '#FF453A' },
-  { key: 'boredom',   label: 'Boredom',     icon: '😑', color: '#FF9F0A' },
-  { key: 'social',    label: 'Social',      icon: '👥', color: '#BF5AF2' },
-  { key: 'tired',     label: 'Tired',       icon: '😴', color: '#5AC8FA' },
-  { key: 'emotional', label: 'Emotional',   icon: '💔', color: '#FF2D55' },
-  { key: 'automatic', label: 'Automatic',   icon: '🔄', color: '#8E8E93' },
-  { key: 'night',     label: 'Late Night',  icon: '🌙', color: '#0A84FF' },
-  { key: 'hunger',    label: 'Hungry',      icon: '🍕', color: '#FF9F0A' },
+  { key: 'stress',    label: 'Stress',     icon: '😤', color: '#FF453A' },
+  { key: 'boredom',   label: 'Boredom',    icon: '😑', color: '#FF9F0A' },
+  { key: 'social',    label: 'Social',     icon: '👥', color: '#BF5AF2' },
+  { key: 'tired',     label: 'Tired',      icon: '😴', color: '#5AC8FA' },
+  { key: 'emotional', label: 'Emotional',  icon: '💔', color: '#FF2D55' },
+  { key: 'automatic', label: 'Automatic',  icon: '🔄', color: '#8E8E93' },
+  { key: 'night',     label: 'Late Night', icon: '🌙', color: '#0A84FF' },
+  { key: 'hunger',    label: 'Hungry',     icon: '🍕', color: '#FF9F0A' },
 ];
 
 export const logSlipTrigger = async ({ habitId, trigger, note = null }) => {
@@ -105,17 +96,13 @@ export const logSlipTrigger = async ({ habitId, trigger, note = null }) => {
   if (!validTriggers.includes(trigger)) {
     throw new Error(`Invalid trigger. Choose from: ${validTriggers.join(', ')}`);
   }
-
   try {
     const db    = await getDatabase();
     const today = getTodayDate();
-
     await db.runAsync(
       'INSERT INTO slip_triggers (habit_id, date, trigger, note) VALUES (?, ?, ?, ?)',
       [habitId, today, trigger, note]
     );
-
-    console.log(`✅ Trigger logged: habit ${habitId} — ${trigger}`);
   } catch (error) {
     throw new Error(`Trigger log failed: ${error.message}`);
   }
@@ -124,19 +111,15 @@ export const logSlipTrigger = async ({ habitId, trigger, note = null }) => {
 export const getTriggersForHabit = async (habitId, days = 30) => {
   if (!habitId) return [];
   try {
-    const db = await getDatabase();
-    const fromDate = new Date();
-    fromDate.setDate(fromDate.getDate() - days);
-
+    const db      = await getDatabase();
+    const fromDay = new Date();
+    fromDay.setDate(fromDay.getDate() - days);
+    const fromDate = _localDate(fromDay);  // FIX: was toISOString()
     return await db.getAllAsync(
-      `SELECT * FROM slip_triggers
-       WHERE habit_id = ? AND date >= ?
-       ORDER BY date DESC`,
-      [habitId, fromDate.toISOString().split('T')[0]]
+      `SELECT * FROM slip_triggers WHERE habit_id = ? AND date >= ? ORDER BY date DESC`,
+      [habitId, fromDate]
     ) || [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 };
 
 export const getTriggerPattern = async (habitId) => {
@@ -145,48 +128,37 @@ export const getTriggerPattern = async (habitId) => {
     const triggers = await getTriggersForHabit(habitId, 30);
     if (triggers.length === 0) return null;
 
-    // Count each trigger type
     const counts = {};
-    triggers.forEach(t => {
-      counts[t.trigger] = (counts[t.trigger] || 0) + 1;
-    });
+    triggers.forEach(t => { counts[t.trigger] = (counts[t.trigger] || 0) + 1; });
 
-    // Find top trigger
-    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-    const topKey = sorted[0]?.[0];
+    const sorted   = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const topKey   = sorted[0]?.[0];
     const topCount = sorted[0]?.[1];
-    const topInfo = TRIGGER_OPTIONS.find(t => t.key === topKey);
-
-    // Percentage
-    const pct = Math.round((topCount / triggers.length) * 100);
+    const topInfo  = TRIGGER_OPTIONS.find(t => t.key === topKey);
+    const pct      = Math.round((topCount / triggers.length) * 100);
 
     return {
-      topTrigger: topKey,
+      topTrigger:  topKey,
       topInfo,
       topCount,
-      percentage: pct,
-      totalSlips: triggers.length,
-      allCounts:  counts,
-      label:      topInfo ? `${topInfo.icon} ${topInfo.label} (${pct}% of slips)` : null,
+      percentage:  pct,
+      totalSlips:  triggers.length,
+      allCounts:   counts,
+      label: topInfo ? `${topInfo.icon} ${topInfo.label} (${pct}% of slips)` : null,
     };
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 };
 
-// Get top trigger across all break habits
 export const getOverallTriggerPattern = async () => {
   try {
-    const db = await getDatabase();
+    const db           = await getDatabase();
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const fromDate = sevenDaysAgo.toISOString().split('T')[0];
+    const fromDate = _localDate(sevenDaysAgo);  // FIX: was toISOString()
 
     const triggers = await db.getAllAsync(
-      'SELECT trigger FROM slip_triggers WHERE date >= ?',
-      [fromDate]
+      'SELECT trigger FROM slip_triggers WHERE date >= ?', [fromDate]
     ) || [];
-
     if (triggers.length === 0) return null;
 
     const counts = {};
@@ -194,30 +166,24 @@ export const getOverallTriggerPattern = async () => {
     const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
     const topKey = sorted[0]?.[0];
     return TRIGGER_OPTIONS.find(t => t.key === topKey) || null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 };
 
 // ── WEEKLY REFLECTIONS ────────────────────────────────────────────────
-
 export const saveWeeklyReflection = async ({ wentWell, struggled, commitment }) => {
-  if (!wentWell?.trim())   throw new Error('Please share what went well this week');
-  if (!commitment?.trim()) throw new Error('Please write your commitment for next week');
-
+  if (!wentWell?.trim())    throw new Error('Please share what went well this week');
+  if (!commitment?.trim())  throw new Error('Please write your commitment for next week');
   try {
-    const db         = await getDatabase();
-    const today      = new Date();
-    const monday     = new Date(today);
-    const day        = today.getDay();
+    const db    = await getDatabase();
+    const today = new Date();
+    const day   = today.getDay();
+    const monday = new Date(today);
     monday.setDate(today.getDate() - (day === 0 ? 6 : day - 1));
-    const weekStart  = monday.toISOString().split('T')[0];
+    const weekStart = _localDate(monday);  // FIX: was toISOString()
 
     const { avgMood, avgEnergy } = await getWeekMoodAverage();
-
     await db.runAsync(
-      `INSERT INTO weekly_reflections
-        (week_start, went_well, struggled, commitment, mood_avg, energy_avg)
+      `INSERT INTO weekly_reflections (week_start, went_well, struggled, commitment, mood_avg, energy_avg)
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(week_start) DO UPDATE SET
          went_well  = excluded.went_well,
@@ -227,8 +193,6 @@ export const saveWeeklyReflection = async ({ wentWell, struggled, commitment }) 
          energy_avg = excluded.energy_avg`,
       [weekStart, wentWell.trim(), struggled?.trim() || '', commitment.trim(), avgMood, avgEnergy]
     );
-
-    console.log(`✅ Weekly reflection saved for week of ${weekStart}`);
     return weekStart;
   } catch (error) {
     if (error.message.includes('Please')) throw error;
@@ -240,38 +204,29 @@ export const getWeeklyReflections = async (limit = 12) => {
   try {
     const db = await getDatabase();
     return await db.getAllAsync(
-      'SELECT * FROM weekly_reflections ORDER BY week_start DESC LIMIT ?',
-      [limit]
+      'SELECT * FROM weekly_reflections ORDER BY week_start DESC LIMIT ?', [limit]
     ) || [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 };
 
 export const getThisWeekReflection = async () => {
   try {
-    const db     = await getDatabase();
-    const today  = new Date();
-    const day    = today.getDay();
+    const db    = await getDatabase();
+    const today = new Date();
+    const day   = today.getDay();
     const monday = new Date(today);
     monday.setDate(today.getDate() - (day === 0 ? 6 : day - 1));
-    const weekStart = monday.toISOString().split('T')[0];
-
+    const weekStart = _localDate(monday);  // FIX: was toISOString()
     return await db.getFirstAsync(
-      'SELECT * FROM weekly_reflections WHERE week_start = ?',
-      [weekStart]
+      'SELECT * FROM weekly_reflections WHERE week_start = ?', [weekStart]
     ) || null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 };
 
-// Should weekly reflection prompt be shown?
+// Should weekly reflection prompt be shown? Sunday after 7 PM only.
 export const shouldShowWeeklyReflection = async () => {
   const today = new Date();
-  // Sunday only, after 7 PM
   if (today.getDay() !== 0 || today.getHours() < 19) return false;
-
   const existing = await getThisWeekReflection();
   return !existing;
 };
