@@ -79,7 +79,8 @@ const HabitHeatmap90 = ({ checkins90, accentColor, habitCreatedAt }) => {
   const days = [];
   const d = new Date(startDate);
   while (d <= today) {
-    days.push({ date: d.toISOString().split('T')[0], isToday: d.getTime() === today.getTime() });
+    const _ld = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    days.push({ date: _ld, isToday: _ld === DateUtils.today() });
     d.setDate(d.getDate() + 1);
   }
 
@@ -482,7 +483,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
     const today30     = new Date();
     const ago30       = new Date();
     ago30.setDate(today30.getDate() - 29);
-    const ago30Str    = ago30.toISOString().split('T')[0];
+    const ago30Str = `${ago30.getFullYear()}-${String(ago30.getMonth()+1).padStart(2,'0')}-${String(ago30.getDate()).padStart(2,'0')}`;
     const habitBirth  = (habit.created_at || ago30Str).split('T')[0];
     const effectiveStart = habitBirth > ago30Str ? habitBirth : ago30Str;
 
