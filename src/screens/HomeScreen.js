@@ -541,28 +541,54 @@ const HomeScreen = ({ navigation }) => {
           </View>
         )}
 
-        {/* ── XP bar ── */}
+        {/* ── XP + Karma Score bars ── */}
         {gamStats?.karmaTitle && !reorderMode && (
-          <View style={{ marginHorizontal: Spacing.xl, marginBottom: Spacing.lg, gap: 6 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={{ ...Typography.caption1, color: colors.gold, fontWeight: '600' }}>⚡ {gamStats.totalXP} XP</Text>
-              {kt?.nextTitle && (
-                <Text style={{ ...Typography.caption2, color: colors.textDim }}>
-                  → {kt.nextTitle.icon} {kt.nextTitle.title} ({kt.nextTitle.minScore})
+          <View style={{ marginHorizontal: Spacing.xl, marginBottom: Spacing.lg, gap: 10 }}>
+
+            {/* XP level bar */}
+            <View style={{ gap: 5 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ ...Typography.caption1, color: colors.gold, fontWeight: '600' }}>
+                  ⚡ {gamStats.totalXP} XP · {gamStats.levelInfo?.icon} {gamStats.levelInfo?.title}
                 </Text>
-              )}
+                {gamStats.levelInfo?.nextLevel && (
+                  <Text style={{ ...Typography.caption2, color: colors.textDim }}>
+                    → {gamStats.levelInfo.nextLevel.icon} {gamStats.levelInfo.nextLevel.minXP} XP
+                  </Text>
+                )}
+              </View>
+              <View style={{ height: 6, backgroundColor: colors.separator, borderRadius: Radius.full, overflow: 'hidden' }}>
+                <View style={{
+                  height: '100%',
+                  width: `${Math.round((gamStats.levelInfo?.progress || 0) * 100)}%`,
+                  backgroundColor: gamStats.levelInfo?.color || colors.gold,
+                  borderRadius: Radius.full,
+                }} />
+              </View>
             </View>
-            <View style={{ height: 6, backgroundColor: colors.backgroundCard, borderRadius: Radius.full, overflow: 'hidden' }}>
-              <View style={{
-                height: '100%',
-                width: `${Math.round((kt?.progress || 0) * 100)}%`,
-                backgroundColor: kt?.color || colors.gold,
-                borderRadius: Radius.full,
-              }} />
+
+            {/* Karma Score bar */}
+            <View style={{ gap: 5 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ ...Typography.caption1, color: kt?.color || colors.blue, fontWeight: '600' }}>
+                  ☸ {gamStats.karmaScore} · {kt?.icon} {kt?.title}
+                </Text>
+                {kt?.nextTitle && (
+                  <Text style={{ ...Typography.caption2, color: colors.textDim }}>
+                    → {kt.nextTitle.icon} {kt.nextTitle.minScore}
+                  </Text>
+                )}
+              </View>
+              <View style={{ height: 6, backgroundColor: colors.separator, borderRadius: Radius.full, overflow: 'hidden' }}>
+                <View style={{
+                  height: '100%',
+                  width: `${Math.round((kt?.progress || 0) * 100)}%`,
+                  backgroundColor: kt?.color || colors.blue,
+                  borderRadius: Radius.full,
+                }} />
+              </View>
             </View>
-            <Text style={{ ...Typography.caption2, color: colors.textDim, textAlign: 'right' }}>
-              Karma Score: {gamStats.karmaScore}/1000 · {kt?.title}
-            </Text>
+
           </View>
         )}
 

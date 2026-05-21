@@ -7,6 +7,13 @@ import { getDatabase } from '../database/database';
 
 const APP_BIRTH = '2026-05-01';
 
+const _localDate = (d) => {
+  const y  = d.getFullYear();
+  const m  = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+};
+
 export const generateInsights = async () => {
   try {
     const db = await getDatabase();
@@ -14,7 +21,7 @@ export const generateInsights = async () => {
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const fromDate = thirtyDaysAgo.toISOString().split('T')[0];
+    const fromDate = _localDate(thirtyDaysAgo);
 
     const habits = await db.getAllAsync(
       "SELECT * FROM habits WHERE is_active = 1 AND is_paused = 0"
@@ -182,7 +189,7 @@ const _analyzeBreakHabit = async (habit, checkins, db, fromDate) => {
 const _detectChronicAutoSkip = (habit, checkins) => {
   const fourteenDaysAgo = new Date();
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-  const cutoff = fourteenDaysAgo.toISOString().split('T')[0];
+  const cutoff = _localDate(fourteenDaysAgo);
 
   const recentAutoSkips = checkins.filter(
     c => c.status === 'auto_skipped' && c.date >= cutoff

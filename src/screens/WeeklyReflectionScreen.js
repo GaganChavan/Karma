@@ -228,7 +228,7 @@ const WeeklyReflectionScreen = ({ navigation }) => {
               {history.map((r, i) => (
                 <View key={r.id} style={styles.historyCard}>
                   <Text style={styles.historyWeek}>
-                    Week of {DateUtils.formatDate(r.week_start)}
+                    Week of {r.week_start ? DateUtils.formatDate(r.week_start) : '—'}
                   </Text>
                   {r.went_well && (
                     <View style={styles.historySection}>

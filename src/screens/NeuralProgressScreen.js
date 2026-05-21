@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView }  from 'react-native-safe-area-context';
 import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
+import { DateUtils }                        from '../utils/dateUtils';
 import { getAllHabits, getCheckinsForHabit } from '../database/habitService';
 import { getNeuralProgress }                from '../services/wfoService';
 import ShlokaDisplay                        from '../components/ShlokaDisplay';
@@ -47,7 +48,7 @@ const PracticeCalendar = ({ checkins, habitCreatedAt, accentColor, colors }) => 
   const days = [];
   const d = new Date(startDate);
   while (d <= today) {
-    days.push({ date: d.toISOString().split('T')[0], isToday: d.getTime() === today.getTime() });
+    days.push({ date: DateUtils.toDateString(d), isToday: d.getTime() === today.getTime() });
     d.setDate(d.getDate() + 1);
   }
 

@@ -11,6 +11,7 @@ import {
 import { SafeAreaView }    from 'react-native-safe-area-context';
 import { useFocusEffect }  from '@react-navigation/native';
 import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
+import { DateUtils }       from '../utils/dateUtils';
 import {
   getSetting, setSetting, getAllSettings,
   getAllHabits, getTodayCheckins, getStreak,
@@ -155,8 +156,8 @@ const SettingsScreen = ({ navigation }) => {
       const daysFromMon = dow === 0 ? 6 : dow - 1;
       const monday      = new Date(today);
       monday.setDate(today.getDate() - daysFromMon);
-      const fromDate  = monday.toISOString().split('T')[0];
-      const todayDate = today.toISOString().split('T')[0];
+      const fromDate  = DateUtils.toDateString(monday);
+      const todayDate = DateUtils.today();
 
       // Actual weekly completion rate
       let weeklyRate = 0;

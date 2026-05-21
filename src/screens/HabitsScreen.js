@@ -10,6 +10,7 @@ import {
 import { SafeAreaView }    from 'react-native-safe-area-context';
 import { useFocusEffect }  from '@react-navigation/native';
 import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
+import { DateUtils }       from '../utils/dateUtils';
 import { getDatabase }     from '../database/database';
 import {
   archiveHabit, getSetting,
@@ -36,7 +37,7 @@ const getCurrentWeekDates = () => {
     const d = new Date(today);
     d.setDate(today.getDate() - daysFromMon + i);
     dates.push({
-      dateStr: d.toISOString().split('T')[0],
+      dateStr: DateUtils.toDateString(d),
       label:   ['M','T','W','T','F','S','S'][i],
       isToday: i === daysFromMon,
       isFuture:i > daysFromMon,
@@ -184,7 +185,7 @@ const HabitsScreen = ({ navigation }) => {
 
   const _renderHabit = (habit, isArchived = false) => {
     const accent      = habit.color || colors.gold;
-    const todayStr    = new Date().toISOString().split('T')[0];
+    const todayStr    = DateUtils.today();
     const todayStatus = checkinMap[habit.id]?.[todayStr];
     const doneToday   = todayStatus === 'done' || todayStatus === 'resisted';
 

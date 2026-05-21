@@ -37,7 +37,7 @@ const MILESTONE_DAYS = [3, 7, 14, 21, 30, 48, 60, 75, 90, 180, 365];
 const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
   if (!heatmapData || heatmapData.length === 0) return null;
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = DateUtils.today();
   const [selectedMonth, setSelectedMonth] = useState(null);
 
   const availableMonths = useMemo(() => {
@@ -219,12 +219,12 @@ const StatsScreen = ({ navigation }) => {
       const db    = await getDatabase();
       const today = new Date();
 
-      const todayStr = today.toISOString().split('T')[0];
+      const todayStr = DateUtils.today();
       const dates90  = [];
       for (let i = 89; i >= 0; i--) {
         const d = new Date(today);
         d.setDate(d.getDate() - i);
-        dates90.push(d.toISOString().split('T')[0]);
+        dates90.push(DateUtils.toDateString(d));
       }
 
       const habits   = await getAllHabits();
@@ -241,7 +241,7 @@ const StatsScreen = ({ navigation }) => {
 
       const milestones    = await db.getAllAsync('SELECT * FROM milestones ORDER BY achieved_at DESC') || [];
       const totalDone     = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE status IN ('done','resisted')");
-      const monthStart    = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+      const monthStart    = DateUtils.toDateString(new Date(today.getFullYear(), today.getMonth(), 1));
       const monthDone     = await db.getFirstAsync("SELECT COUNT(*) as count FROM checkins WHERE date >= ? AND status IN ('done','resisted')", [monthStart]);
       const allStreaks     = await Promise.all(habits.map(h => getStreak(h.id)));
       const bestStreak    = allStreaks.reduce((max, s) => s.longest > max ? s.longest : max, 0);
@@ -278,7 +278,7 @@ const StatsScreen = ({ navigation }) => {
         for (let d = 6; d >= 0; d--) {
           const date = new Date(today);
           date.setDate(date.getDate() - (w * 7 + d));
-          weekDates.push(date.toISOString().split('T')[0]);
+          weekDates.push(DateUtils.toDateString(date));
         }
         weeks.push(weekDates);
       }
@@ -298,7 +298,7 @@ const StatsScreen = ({ navigation }) => {
       const hd   = new Date(appStartDate + 'T00:00:00');
       const hEnd = new Date(todayStr   + 'T00:00:00');
       while (hd <= hEnd) {
-        heatmapDates.push(hd.toISOString().split('T')[0]);
+        heatmapDates.push(DateUtils.toDateString(hd));
         hd.setDate(hd.getDate() + 1);
       }
       const heatmapData = heatmapDates.map(date => {
@@ -335,8 +335,9 @@ const StatsScreen = ({ navigation }) => {
       setInsights(ins);
       setEarnedJourney(journeyEarned || []);
 
-      // Default habit selected for badges tab
-      if (habitStats.length > 0 && !selectedHabitId) {
+      // Default habit selected for badges tab — reset if previously selected habit no longer exists
+      const stillExists = habitStats.some(h => h.id === selectedHabitId);
+      if (habitStats.length > 0 && (!selectedHabitId || !stillExists)) {
         setSelectedHabitId(habitStats[0].id);
       }
     } catch (err) {
@@ -505,7 +506,7 @@ const StatsScreen = ({ navigation }) => {
 
             <OverviewHeatmap
               heatmapData={data?.heatmapData || []}
-              appStartDate={data?.appStartDate || new Date().toISOString().split('T')[0]}
+              appStartDate={data?.appStartDate || DateUtils.today()}
               colors={colors}
             />
           </>

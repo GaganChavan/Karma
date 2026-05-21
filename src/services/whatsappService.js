@@ -55,7 +55,7 @@ export const sendDailyWhatsApp = async (reportData) => {
     if (c?.status === 'done')         return `✅ ${h.name} — ${streak}d streak 🪔`;
     if (c?.status === 'missed')       return `❌ ${h.name} — missed`;
     if (c?.status === 'skipped')      return `⏭ ${h.name} — skipped`;
-    if (c?.status === 'auto_skipped') return `⚠️ ${h.name} — not logged (-3 XP)`;
+    if (c?.status === 'auto_skipped') return `⚠️ ${h.name} — not logged (-2 XP)`;
     return `⬜ ${h.name} — not checked`;
   }).join('\n');
 
@@ -65,7 +65,7 @@ export const sendDailyWhatsApp = async (reportData) => {
     const streak = streaks[h.id]?.current || 0;
     if (c?.status === 'resisted')     return `✊ ${h.name} — ${streak}d clean`;
     if (c?.status === 'slip')         return `😔 ${h.name} — slipped (${c?.slip_count || 1}×)`;
-    if (c?.status === 'auto_skipped') return `⚠️ ${h.name} — not logged (-3 XP)`;
+    if (c?.status === 'auto_skipped') return `⚠️ ${h.name} — not logged (-2 XP)`;
     return `⬜ ${h.name} — not checked`;
   }).join('\n');
 
