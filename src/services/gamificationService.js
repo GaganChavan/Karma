@@ -3,6 +3,8 @@
 // Affected functions: checkPerfectDay, awardPerfectDayIfEligible,
 //   getKarmaScore, useStreakFreeze, checkAndAwardStreakFreeze,
 //   checkAndAwardJourneyBadges
+// WFO FIX: getKarmaScore now excludes is_wfo_skip habits when WFO mode is on
+// PERF FIX: getKarmaScore replaced N+1 per-habit queries with a single GROUP BY query
 
 import { getDatabase }          from '../database/database';
 import { getSetting, setSetting } from '../database/habitService';
@@ -236,6 +238,7 @@ export const getHabitMilestones = async (habitId) => {
 
 // ── KARMA SCORE (0–1000) ──────────────────────────────────────────────
 // FIX: was today.toISOString().split('T')[0] and winStart.toISOString()...
+// FIX: WFO mode now excluded (mirrors checkPerfectDay); N+1 queries → 2 queries
 export const getKarmaScore = async () => {
   try {
     const db       = await getDatabase();
@@ -244,13 +247,31 @@ export const getKarmaScore = async () => {
 
     const winStart = new Date(today);
     winStart.setDate(today.getDate() - 29);
-    const winStartStr         = _localDate(winStart);  // TIMEZONE FIX
+    const winStartStr          = _localDate(winStart);  // TIMEZONE FIX
     const effectiveWindowStart = winStartStr > APP_BIRTH ? winStartStr : APP_BIRTH;
 
-    const habits = await db.getAllAsync(
-      "SELECT id, created_at FROM habits WHERE is_active = 1 AND is_paused = 0"
+    // WFO fix: exclude WFO-skippable habits when WFO mode is on (mirrors checkPerfectDay)
+    const wfoMode = (await getSetting('wfo_mode')) === 'true';
+    const habits  = await db.getAllAsync(
+      `SELECT id, created_at FROM habits WHERE is_active = 1 AND is_paused = 0${wfoMode ? ' AND is_wfo_skip = 0' : ''}`
     ) || [];
     if (habits.length === 0) return 0;
+
+    // Single batch query instead of one query per habit
+    const habitIds     = habits.map(h => h.id);
+    const placeholders = habitIds.map(() => '?').join(',');
+    const rows = await db.getAllAsync(`
+      SELECT
+        habit_id,
+        SUM(CASE WHEN status IN ('done','resisted') THEN 1 ELSE 0 END) as done_count,
+        SUM(CASE WHEN status = 'skipped'            THEN 1 ELSE 0 END) as skipped_count
+      FROM checkins
+      WHERE habit_id IN (${placeholders}) AND date >= ? AND date <= ?
+      GROUP BY habit_id
+    `, [...habitIds, effectiveWindowStart, todayStr]) || [];
+
+    const summaryMap = {};
+    for (const row of rows) summaryMap[row.habit_id] = row;
 
     let totalPossible = 0;
     let totalDone     = 0;
@@ -263,14 +284,7 @@ export const getKarmaScore = async () => {
       const days       = Math.floor((endD - startD) / 86400000) + 1;
       if (days <= 0) continue;
 
-      const summary = await db.getFirstAsync(`
-        SELECT
-          SUM(CASE WHEN status IN ('done','resisted') THEN 1 ELSE 0 END) as done_count,
-          SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END)            as skipped_count
-        FROM checkins
-        WHERE habit_id = ? AND date >= ? AND date <= ?
-      `, [habit.id, start, todayStr]);
-
+      const summary  = summaryMap[habit.id];
       const skipped  = summary?.skipped_count || 0;
       const done     = summary?.done_count    || 0;
       const possible = Math.max(0, days - skipped);
@@ -320,40 +334,82 @@ export const getEarnedJourneyBadges = async () => {
 };
 
 // FIX: was new Date().toISOString().split('T')[0] in The Yogi check
+// DATE FIX: award() now accepts achievedAt so badges reflect the real event date,
+//           not the date checkAndAwardJourneyBadges happened to run.
+//           correctDate() self-heals already-inserted records with wrong timestamps.
 export const checkAndAwardJourneyBadges = async (currentKarmaScore = null) => {
   try {
-    const db      = await getDatabase();
-    const earned  = await db.getAllAsync('SELECT badge_id FROM journey_milestones') || [];
+    const db        = await getDatabase();
+    const earned    = await db.getAllAsync('SELECT badge_id FROM journey_milestones') || [];
     const earnedIds = new Set(earned.map(e => e.badge_id));
     const newBadges = [];
 
-    const award = async (badge) => {
+    const award = async (badge, achievedAt = null) => {
       if (!badge || earnedIds.has(badge.id)) return;
-      await db.runAsync('INSERT OR IGNORE INTO journey_milestones (badge_id) VALUES (?)', [badge.id]);
+      const dateVal = achievedAt || _today();
+      await db.runAsync(
+        'INSERT OR IGNORE INTO journey_milestones (badge_id, achieved_at) VALUES (?, ?)',
+        [badge.id, dateVal]
+      );
       earnedIds.add(badge.id);
       newBadges.push(badge);
-      console.log(`🏅 Journey Badge: ${badge.title}`);
+    };
+
+    // Correct an already-stored date if we can prove the real event happened earlier
+    const correctDate = async (badgeId, achievedAt) => {
+      if (!achievedAt) return;
+      await db.runAsync(
+        'UPDATE journey_milestones SET achieved_at = ? WHERE badge_id = ? AND achieved_at > ?',
+        [achievedAt, badgeId, achievedAt]
+      );
     };
 
     if (!earnedIds.has('first_dawn')) {
-      const r = await db.getFirstAsync("SELECT id FROM checkins WHERE status IN ('done','resisted') LIMIT 1");
-      if (r) await award(JOURNEY_BADGES.find(b => b.id === 'first_dawn'));
+      const r = await db.getFirstAsync("SELECT MIN(date) as d FROM checkins WHERE status IN ('done','resisted')");
+      if (r?.d) await award(JOURNEY_BADGES.find(b => b.id === 'first_dawn'), r.d);
+    } else {
+      const r = await db.getFirstAsync("SELECT MIN(date) as d FROM checkins WHERE status IN ('done','resisted')");
+      await correctDate('first_dawn', r?.d);
     }
+
     if (!earnedIds.has('first_resistance')) {
-      const r = await db.getFirstAsync("SELECT id FROM checkins WHERE status = 'resisted' LIMIT 1");
-      if (r) await award(JOURNEY_BADGES.find(b => b.id === 'first_resistance'));
+      const r = await db.getFirstAsync("SELECT MIN(date) as d FROM checkins WHERE status = 'resisted'");
+      if (r?.d) await award(JOURNEY_BADGES.find(b => b.id === 'first_resistance'), r.d);
+    } else {
+      const r = await db.getFirstAsync("SELECT MIN(date) as d FROM checkins WHERE status = 'resisted'");
+      await correctDate('first_resistance', r?.d);
     }
+
     if (!earnedIds.has('ten_battles')) {
-      const c = await db.getFirstAsync("SELECT COUNT(*) as cnt FROM checkins WHERE status IN ('done','resisted')");
-      if ((c?.cnt || 0) >= 10) await award(JOURNEY_BADGES.find(b => b.id === 'ten_battles'));
+      const r = await db.getFirstAsync(
+        "SELECT date FROM checkins WHERE status IN ('done','resisted') ORDER BY date ASC LIMIT 1 OFFSET 9"
+      );
+      if (r?.date) await award(JOURNEY_BADGES.find(b => b.id === 'ten_battles'), r.date);
+    } else {
+      const r = await db.getFirstAsync(
+        "SELECT date FROM checkins WHERE status IN ('done','resisted') ORDER BY date ASC LIMIT 1 OFFSET 9"
+      );
+      await correctDate('ten_battles', r?.date);
     }
+
     if (!earnedIds.has('century')) {
-      const c = await db.getFirstAsync("SELECT COUNT(*) as cnt FROM checkins WHERE status IN ('done','resisted')");
-      if ((c?.cnt || 0) >= 100) await award(JOURNEY_BADGES.find(b => b.id === 'century'));
+      const r = await db.getFirstAsync(
+        "SELECT date FROM checkins WHERE status IN ('done','resisted') ORDER BY date ASC LIMIT 1 OFFSET 99"
+      );
+      if (r?.date) await award(JOURNEY_BADGES.find(b => b.id === 'century'), r.date);
+    } else {
+      const r = await db.getFirstAsync(
+        "SELECT date FROM checkins WHERE status IN ('done','resisted') ORDER BY date ASC LIMIT 1 OFFSET 99"
+      );
+      await correctDate('century', r?.date);
     }
+
     if (!earnedIds.has('all_in_day')) {
       const last = await getSetting('last_perfect_day');
-      if (last) await award(JOURNEY_BADGES.find(b => b.id === 'all_in_day'));
+      if (last) await award(JOURNEY_BADGES.find(b => b.id === 'all_in_day'), last);
+    } else {
+      const last = await getSetting('last_perfect_day');
+      await correctDate('all_in_day', last);
     }
 
     const score = currentKarmaScore !== null ? currentKarmaScore : await getKarmaScore();

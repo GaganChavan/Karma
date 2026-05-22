@@ -26,6 +26,14 @@ const CATEGORY_TAG = {
   conscious:    { icon: '🔥', label: 'Conscious',    color: '#FF453A' },
 };
 
+const CATEGORY_ORDER = [
+  { key: 'spiritual',    label: 'SPIRITUAL',     icon: '🕉️', color: '#BF5AF2' },
+  { key: 'intellectual', label: 'INTELLECTUAL',  icon: '📚', color: '#0A84FF' },
+  { key: 'physical',     label: 'PHYSICAL',      icon: '💪', color: '#30D158' },
+  { key: 'conscious',    label: 'CONSCIOUS',     icon: '🔥', color: '#FF453A' },
+  { key: 'uncategorised',label: 'UNCATEGORISED', icon: '☸',  color: '#8E8E93' },
+];
+
 // Returns Mon→Sun dates of current week
 const getCurrentWeekDates = () => {
   const today = new Date();
@@ -46,26 +54,43 @@ const getCurrentWeekDates = () => {
   return dates;
 };
 
+// Semantic dot style resolver
+// Solid = streak impacted (or won). Hollow ring = streak protected.
+// Gold=win · Amber=missed · Red=slip · Grey ring=skipped · Orange ring=auto_skipped
+const _dotProps = (status, isFuture, isToday, colors) => {
+  if (isFuture) return { bg: 'transparent', border: 'transparent', bw: 0, op: 0 };
+  if (!status) {
+    return isToday
+      ? { bg: 'transparent', border: colors.gold, bw: 1.5, op: 0.5 }  // today, not yet logged
+      : { bg: colors.textDim, border: 'transparent', bw: 0,   op: 0.12 }; // past, no log
+  }
+  const tb  = isToday ? colors.gold : 'transparent';
+  const tbw = isToday ? 1.5 : 0;
+  switch (status) {
+    case 'done':
+    case 'resisted':     return { bg: '#FFD60A',           border: tb,                                   bw: tbw, op: 1 };
+    case 'missed':       return { bg: '#FF9F0A',           border: tb,                                   bw: tbw, op: 1 };
+    case 'slip':         return { bg: '#FF453A',           border: tb,                                   bw: tbw, op: 1 };
+    case 'skipped':      return { bg: 'transparent',       border: isToday ? colors.gold : '#8E8E93',    bw: 1.5, op: 1 };
+    case 'auto_skipped': return { bg: 'transparent',       border: isToday ? colors.gold : '#FF9F0A',   bw: 1.5, op: 1 };
+    default:             return { bg: colors.backgroundCard, border: 'transparent',                      bw: 0,   op: 0.3 };
+  }
+};
+
 // 7-dot strip component
-const WeekDots = ({ habitId, weekDates, checkinMap, accentColor, colors }) => (
+const WeekDots = ({ habitId, weekDates, checkinMap, colors }) => (
   <View style={{ flexDirection: 'row', gap: 4, marginTop: 6 }}>
     {weekDates.map((d, i) => {
-      const status = checkinMap[habitId]?.[d.dateStr];
-      const done   = status === 'done' || status === 'resisted';
-      const bad    = status === 'missed' || status === 'slip';
-      const skip   = status === 'skipped' || status === 'auto_skipped';
-      const bg = done ? accentColor
-               : bad  ? colors.red + '99'
-               : skip ? colors.backgroundElevated
-               : colors.backgroundCard;
+      const status            = checkinMap[habitId]?.[d.dateStr];
+      const { bg, border, bw, op } = _dotProps(status, d.isFuture, d.isToday, colors);
       return (
         <View key={i} style={{ alignItems: 'center', gap: 2 }}>
           <View style={{
             width: 9, height: 9, borderRadius: 5,
-            backgroundColor: d.isFuture ? 'transparent' : bg,
-            borderWidth:     d.isToday ? 1.5 : 0,
-            borderColor:     colors.gold,
-            opacity:         d.isFuture ? 0.2 : 1,
+            backgroundColor: bg,
+            borderWidth: bw,
+            borderColor:  border,
+            opacity:      op,
           }} />
           <Text style={{ fontSize: 7, color: d.isToday ? colors.gold : colors.textDim }}>
             {d.label}
@@ -254,7 +279,6 @@ const HabitsScreen = ({ navigation }) => {
               habitId={habit.id}
               weekDates={weekDates}
               checkinMap={checkinMap}
-              accentColor={accent}
               colors={colors}
             />
           )}
@@ -311,8 +335,9 @@ const HabitsScreen = ({ navigation }) => {
     </View>
   );
 
-  const buildHabits = habits.filter(h => h.type === 'build');
-  const breakHabits = habits.filter(h => h.type === 'break');
+  const habitsByCategory = CATEGORY_ORDER
+    .map(cat => ({ ...cat, items: habits.filter(h => (h.category || 'uncategorised') === cat.key) }))
+    .filter(g => g.items.length > 0);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
@@ -334,8 +359,8 @@ const HabitsScreen = ({ navigation }) => {
         {/* Summary */}
         <View style={{ flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.xl }}>
           {[
-            { num: buildHabits.length, label: 'Building', color: colors.green },
-            { num: breakHabits.length, label: 'Breaking', color: colors.red },
+            { num: habits.filter(h => h.type === 'build').length, label: 'Building', color: colors.green },
+            { num: habits.filter(h => h.type === 'break').length, label: 'Breaking', color: colors.red },
             { num: paused.length,      label: 'Paused',   color: colors.blue },
             { num: archived.length,    label: 'Archived', color: colors.textMuted },
           ].map((s, i) => (
@@ -348,50 +373,41 @@ const HabitsScreen = ({ navigation }) => {
 
         {/* Week legend */}
         {habits.length > 0 && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.md, paddingHorizontal: Spacing.xs }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: Spacing.md, paddingHorizontal: Spacing.xs }}>
             <Text style={{ ...Typography.caption2, color: colors.textDim }}>This week:</Text>
             {[
-              { color: colors.gold,              label: 'Done' },
-              { color: colors.red + '99',        label: 'Missed' },
-              { color: colors.backgroundElevated,label: 'Skipped', border: true },
+              { bg: '#FFD60A',     border: 'transparent', bw: 0,   label: 'Done' },
+              { bg: '#FF9F0A',     border: 'transparent', bw: 0,   label: 'Missed' },
+              { bg: '#FF453A',     border: 'transparent', bw: 0,   label: 'Slip' },
+              { bg: 'transparent', border: '#8E8E93',     bw: 1.5, label: 'Skipped' },
+              { bg: 'transparent', border: '#FF9F0A',     bw: 1.5, label: 'Auto' },
             ].map((l, i) => (
               <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: l.color, borderWidth: l.border ? 1 : 0, borderColor: colors.separator }} />
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: l.bg, borderWidth: l.bw, borderColor: l.border }} />
                 <Text style={{ fontSize: 9, color: colors.textDim }}>{l.label}</Text>
               </View>
             ))}
           </View>
         )}
 
-        {/* Build habits */}
-        {buildHabits.length > 0 && (
-          <>
-            <Text style={[styles.groupLabel, { color: colors.textDim }]}>BUILD HABITS</Text>
+        {/* SIP category groups */}
+        {habitsByCategory.map(group => (
+          <React.Fragment key={group.key}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: Spacing.lg, marginBottom: Spacing.xs }}>
+              <Text style={{ fontSize: 11 }}>{group.icon}</Text>
+              <Text style={[styles.groupLabel, { color: group.color, marginTop: 0, marginBottom: 0 }]}>{group.label}</Text>
+              <Text style={{ ...Typography.caption2, color: colors.textDim, marginLeft: 2 }}>— {group.items.length}</Text>
+            </View>
             <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: colors.separator, marginBottom: Spacing.xs }}>
-              {buildHabits.map((h, i) => (
+              {group.items.map((h, i) => (
                 <View key={h.id}>
                   {i > 0 && <View style={{ height: 1, backgroundColor: colors.separator, marginHorizontal: Spacing.lg }} />}
                   {_renderHabit(h)}
                 </View>
               ))}
             </View>
-          </>
-        )}
-
-        {/* Break habits */}
-        {breakHabits.length > 0 && (
-          <>
-            <Text style={[styles.groupLabel, { color: colors.textDim }]}>BREAK HABITS</Text>
-            <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: colors.separator, marginBottom: Spacing.xs }}>
-              {breakHabits.map((h, i) => (
-                <View key={h.id}>
-                  {i > 0 && <View style={{ height: 1, backgroundColor: colors.separator, marginHorizontal: Spacing.lg }} />}
-                  {_renderHabit(h)}
-                </View>
-              ))}
-            </View>
-          </>
-        )}
+          </React.Fragment>
+        ))}
 
         {/* Empty state */}
         {habits.length === 0 && paused.length === 0 && (

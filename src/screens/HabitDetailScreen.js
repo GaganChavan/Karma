@@ -50,11 +50,11 @@ const GAP  = 2;
 
 const getStatusColor = (status, accentColor, colors) => {
   if (!status)                                    return colors.backgroundCard;
-  if (status === 'done' || status === 'resisted') return accentColor;
-  if (status === 'slip')                          return colors.red + '77';
-  if (status === 'missed')                        return colors.red + '30';
-  if (status === 'skipped')                       return colors.backgroundElevated;
-  if (status === 'auto_skipped')                  return '#F5A62340';
+  if (status === 'done' || status === 'resisted') return accentColor;       // habit accent — single-habit heatmap, OK
+  if (status === 'slip')                          return '#FF453A';          // solid red — active failure
+  if (status === 'missed')                        return '#FF9F0ABB';        // amber — passive failure
+  if (status === 'skipped')                       return colors.backgroundElevated; // grey — streak protected
+  if (status === 'auto_skipped')                  return '#FF9F0A33';        // faint amber — system flagged
   return colors.backgroundCard;
 };
 
@@ -936,8 +936,9 @@ const HabitDetailScreen = ({ navigation, route }) => {
                     paddingHorizontal: Spacing.md,
                     paddingVertical: Spacing.sm + 2,
                     alignItems: 'center',
-                    gap: 4,
-                    minWidth: 60,
+                    gap: 3,
+                    minWidth: 68,
+                    maxWidth: 80,
                     opacity: earned ? 1 : isNext ? 0.75 : 0.4,
                   }}>
                     <Text style={{ fontSize: 22, opacity: earned ? 1 : 0.6 }}>
@@ -949,6 +950,14 @@ const HabitDetailScreen = ({ navigation, route }) => {
                       fontWeight: earned ? '700' : '400',
                     }}>
                       {days}d
+                    </Text>
+                    <Text style={{
+                      fontSize: 8,
+                      color:      earned ? colors.textSecondary : colors.textDim,
+                      fontWeight: earned ? '600' : '400',
+                      textAlign:  'center',
+                    }} numberOfLines={2}>
+                      {info.title}
                     </Text>
                     {earned && (
                       <Text style={{ fontSize: 8, color: colors.green, fontWeight: '700' }}>✓</Text>

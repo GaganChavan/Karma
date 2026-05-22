@@ -455,9 +455,9 @@ export const getStreak = async (habitId) => {
       if (status === 'done' || status === 'resisted') {
         tempStreak++;
         if (isCurrentStreak) current++;
-      } else if (status === 'skipped' || status === 'auto_skipped') {
-        // Streak frozen — neither increments nor breaks
-      } else if (status === 'missed' || status === 'slip') {
+      } else if (status === 'skipped') {
+        // Streak frozen — neither increments nor breaks (intentional skip)
+      } else if (status === 'missed' || status === 'slip' || status === 'auto_skipped') {
         if (isCurrentStreak) isCurrentStreak = false;
         if (tempStreak > longest) longest = tempStreak;
         tempStreak = 0;

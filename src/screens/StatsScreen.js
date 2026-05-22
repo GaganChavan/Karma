@@ -33,6 +33,14 @@ const GAP  = 2;
 const APP_BIRTH = '2026-05-01';
 const MILESTONE_DAYS = [3, 7, 14, 21, 30, 48, 60, 75, 90, 180, 365];
 
+const CATEGORY_ORDER = [
+  { key: 'spiritual',    label: 'SPIRITUAL',     icon: '🕉️', color: '#BF5AF2' },
+  { key: 'intellectual', label: 'INTELLECTUAL',  icon: '📚', color: '#0A84FF' },
+  { key: 'physical',     label: 'PHYSICAL',      icon: '💪', color: '#30D158' },
+  { key: 'conscious',    label: 'CONSCIOUS',     icon: '🔥', color: '#FF453A' },
+  { key: 'uncategorised',label: 'UNCATEGORISED', icon: '☸',  color: '#8E8E93' },
+];
+
 // ── Overview Heatmap ──────────────────────────────────────────────────
 const OverviewHeatmap = ({ heatmapData, appStartDate, colors }) => {
   if (!heatmapData || heatmapData.length === 0) return null;
@@ -335,10 +343,9 @@ const StatsScreen = ({ navigation }) => {
       setInsights(ins);
       setEarnedJourney(journeyEarned || []);
 
-      // Default habit selected for badges tab — reset if previously selected habit no longer exists
-      const stillExists = habitStats.some(h => h.id === selectedHabitId);
-      if (habitStats.length > 0 && (!selectedHabitId || !stillExists)) {
-        setSelectedHabitId(habitStats[0].id);
+      // Reset expanded habit if it no longer exists
+      if (selectedHabitId && !habitStats.some(h => h.id === selectedHabitId)) {
+        setSelectedHabitId(null);
       }
     } catch (err) {
       setError(err.message);
@@ -368,10 +375,7 @@ const StatsScreen = ({ navigation }) => {
   const kt        = gamStats?.karmaTitle;
   const levelInfo = gamStats?.levelInfo;
 
-  // Badges tab: selected habit's milestones
-  const selectedHabit = (data?.habitStats || []).find(h => h.id === selectedHabitId);
-  const selectedMilestones = selectedHabit?.habitMilestones || [];
-  const earnedJourneyIds   = new Set(earnedJourney.map(b => b.badge_id));
+  const earnedJourneyIds = new Set(earnedJourney.map(b => b.badge_id));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
@@ -457,47 +461,55 @@ const StatsScreen = ({ navigation }) => {
             {/* Stats grid */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.lg }}>
               {[
-                { label: 'TOTAL DONE',    value: String(data?.totalDone || 0), icon: '✅' },
-                { label: 'BEST STREAK',   value: `${data?.bestStreak || 0}d`,  icon: '🪔' },
-                { label: 'THIS MONTH',    value: String(data?.monthDone || 0), icon: '🗓' },
-                { label: 'ACTIVE HABITS', value: String(data?.habits?.length || 0), icon: '☸' },
-                { label: 'FREEZE LEFT',   value: String(gamStats?.freezeCount || 0), icon: '🧊' },
-                { label: 'BADGES',        value: String(data?.milestones?.length || 0), icon: '🏆' },
+                { label: 'ALL-TIME DONE',    sub: 'total habit check-ins',                                   value: String(data?.totalDone || 0),         icon: '✅' },
+                { label: 'BEST STREAK',      sub: 'consecutive days, any habit',                             value: `${data?.bestStreak || 0}d`,           icon: '🪔' },
+                { label: 'DONE THIS MONTH',  sub: new Date().toLocaleString('en-IN', { month: 'long' }),     value: String(data?.monthDone || 0),          icon: '🗓' },
+                { label: 'ACTIVE HABITS',    sub: 'currently tracking',                                      value: String(data?.habits?.length || 0),     icon: '☸' },
+                { label: 'STREAK FREEZES',   sub: 'saves streak for 1 missed day',                          value: String(gamStats?.freezeCount || 0),    icon: '🧊' },
+                { label: 'MILESTONES',       sub: 'habit badges earned',                                     value: String(data?.milestones?.length || 0), icon: '🏆' },
               ].map((s, i) => (
-                <View key={i} style={{ width: '30.5%', backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.md, alignItems: 'center', gap: 4 }}>
+                <View key={i} style={{ width: '30.5%', backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.md, alignItems: 'center', gap: 3 }}>
                   <Text style={{ fontSize: 20 }}>{s.icon}</Text>
                   <Text style={{ fontSize: 18, color: colors.textPrimary, fontWeight: '700' }}>{s.value}</Text>
                   <Text style={{ fontSize: 8, color: colors.textDim, letterSpacing: 1, textAlign: 'center' }}>{s.label}</Text>
+                  <Text style={{ fontSize: 7, color: colors.textDim, textAlign: 'center', opacity: 0.7 }}>{s.sub}</Text>
                 </View>
               ))}
             </View>
 
-            {/* Freeze explanation */}
-            {(gamStats?.freezeCount || 0) > 0 && (
-              <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.md, borderWidth: 1, borderColor: colors.separator, padding: Spacing.md, marginBottom: Spacing.lg, flexDirection: 'row', gap: Spacing.sm }}>
-                <Text style={{ fontSize: 20 }}>🧊</Text>
-                <Text style={{ ...Typography.caption1, color: colors.textDim, flex: 1, lineHeight: 18 }}>
-                  <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>{gamStats.freezeCount} streak freeze{gamStats.freezeCount > 1 ? 's' : ''} available.</Text>{' '}
-                  Earned when weekly consistency ≥ 80%.
-                </Text>
-              </View>
-            )}
+            {/* Freeze explanation — always shown */}
+            <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.md, borderWidth: 1, borderColor: colors.separator, padding: Spacing.md, marginBottom: Spacing.lg, flexDirection: 'row', gap: Spacing.sm }}>
+              <Text style={{ fontSize: 20 }}>🧊</Text>
+              <Text style={{ ...Typography.caption1, color: colors.textDim, flex: 1, lineHeight: 18 }}>
+                <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>
+                  {(gamStats?.freezeCount || 0) > 0
+                    ? `${gamStats.freezeCount} streak freeze${gamStats.freezeCount > 1 ? 's' : ''} available.`
+                    : 'No streak freezes yet.'}
+                </Text>{' '}
+                A streak freeze protects your streak on a missed day. Earned automatically when your weekly habit completion is 80% or more.
+              </Text>
+            </View>
 
             {/* Weekly bars */}
-            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>
-              WEEKLY COMPLETION
-            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: Spacing.sm }}>
+              <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2 }}>
+                HABIT COMPLETION BY WEEK
+              </Text>
+              <Text style={{ fontSize: 8, color: colors.textDim }}>% of habits done · current week in gold</Text>
+            </View>
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 130, gap: 6, marginBottom: Spacing.xl }}>
-              {(data?.weeklyRates || []).map((rate, i) => {
-                const isLast = i === (data?.weeklyRates?.length || 0) - 1;
+              {(data?.weeklyRates || []).map((rate, i, arr) => {
+                const isLast   = i === arr.length - 1;
+                const weeksAgo = arr.length - 1 - i;
+                const label    = isLast ? 'this week' : weeksAgo === 1 ? 'last week' : `${weeksAgo}w ago`;
                 return (
                   <View key={i} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
                     <Text style={{ fontSize: 9, color: colors.textDim }}>{rate}%</Text>
                     <View style={{ width: '100%', height: 100, justifyContent: 'flex-end', backgroundColor: colors.backgroundCard, borderRadius: 4, overflow: 'hidden' }}>
                       <View style={{ width: '100%', height: Math.max(4, rate), backgroundColor: isLast ? colors.gold : colors.blue, borderRadius: 4, opacity: isLast ? 1 : 0.6 }} />
                     </View>
-                    <Text style={{ fontSize: 9, color: isLast ? colors.gold : colors.textDim }}>
-                      {['W1','W2','W3','W4','W5','W6'][i] || `W${i+1}`}
+                    <Text style={{ fontSize: 8, color: isLast ? colors.gold : colors.textDim, textAlign: 'center' }}>
+                      {label}
                     </Text>
                   </View>
                 );
@@ -513,149 +525,170 @@ const StatsScreen = ({ navigation }) => {
         )}
 
         {/* ── HABITS ── */}
-        {tab === 'habits' && (
-          <>
-            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>
-              HABIT BREAKDOWN
-            </Text>
-            <Text style={{ ...Typography.caption1, color: colors.textDim, marginBottom: Spacing.lg }}>
-              Completion % = done days ÷ expected days (excludes skips)
-            </Text>
-            {(data?.habitStats || []).length === 0 && (
-              <Text style={{ ...Typography.body, color: colors.textDim, textAlign: 'center', padding: 40 }}>No habits yet.</Text>
-            )}
-            {(data?.habitStats || []).map(h => (
-              <TouchableOpacity
-                key={h.id}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.lg, marginBottom: Spacing.sm }}
-                onPress={() => navigation.navigate('HabitDetail', { habitId: h.id })}
-                activeOpacity={0.8}
-              >
-                <View style={{ width: 44, height: 44, borderRadius: Radius.md, backgroundColor: (h.color || colors.gold) + '25', alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontSize: 22 }}>{h.icon}</Text>
+        {tab === 'habits' && (() => {
+          const allStats = data?.habitStats || [];
+          const grouped  = CATEGORY_ORDER
+            .map(cat => ({ ...cat, items: allStats.filter(h => (h.category || 'uncategorised') === cat.key) }))
+            .filter(g => g.items.length > 0);
+
+          const HabitCard = ({ h }) => (
+            <TouchableOpacity
+              key={h.id}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.lg, marginBottom: Spacing.sm }}
+              onPress={() => navigation.navigate('HabitDetail', { habitId: h.id })}
+              activeOpacity={0.8}
+            >
+              <View style={{ width: 44, height: 44, borderRadius: Radius.md, backgroundColor: (h.color || colors.gold) + '25', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 22 }}>{h.icon}</Text>
+              </View>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={{ ...Typography.subheadline, color: colors.textPrimary, fontWeight: '600' }}>{h.name}</Text>
+                <Text style={{ ...Typography.caption1, color: colors.textMuted }}>
+                  {h.type === 'build' ? `🪔 ${h.streak.current}d · best ${h.streak.longest}d` : `✊ ${h.streak.current}d clean`}
+                  {h.is_quantifiable ? ` · ${h.unit || 'units'}/day` : ''}
+                </Text>
+                <View style={{ height: 4, backgroundColor: colors.separator, borderRadius: Radius.full, overflow: 'hidden' }}>
+                  <View style={{ height: '100%', width: `${h.rate}%`, backgroundColor: h.color || colors.gold, borderRadius: Radius.full }} />
                 </View>
-                <View style={{ flex: 1, gap: 4 }}>
-                  <Text style={{ ...Typography.subheadline, color: colors.textPrimary, fontWeight: '600' }}>{h.name}</Text>
-                  <Text style={{ ...Typography.caption1, color: colors.textMuted }}>
-                    {h.type === 'build' ? `🪔 ${h.streak.current}d · best ${h.streak.longest}d` : `✊ ${h.streak.current}d clean`}
-                    {h.is_quantifiable ? ` · ${h.unit || 'units'}/day` : ''}
-                  </Text>
-                  <View style={{ height: 4, backgroundColor: colors.separator, borderRadius: Radius.full, overflow: 'hidden' }}>
-                    <View style={{ height: '100%', width: `${h.rate}%`, backgroundColor: h.color || colors.gold, borderRadius: Radius.full }} />
+                <Text style={{ ...Typography.caption2, color: colors.textDim }}>
+                  {h.rate}% · {h.doneCount} done · {h.habitMilestones.length} milestone{h.habitMilestones.length !== 1 ? 's' : ''}
+                </Text>
+              </View>
+              <Text style={{ ...Typography.title3, color: colors.textDim, fontWeight: '300' }}>›</Text>
+            </TouchableOpacity>
+          );
+
+          return (
+            <>
+              <Text style={{ ...Typography.caption1, color: colors.textDim, marginBottom: Spacing.lg }}>
+                Completion % = done days ÷ expected days (excludes skips)
+              </Text>
+              {allStats.length === 0 && (
+                <Text style={{ ...Typography.body, color: colors.textDim, textAlign: 'center', padding: 40 }}>No habits yet.</Text>
+              )}
+              {grouped.map(group => (
+                <React.Fragment key={group.key}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: Spacing.sm, marginTop: Spacing.md }}>
+                    <Text style={{ fontSize: 11 }}>{group.icon}</Text>
+                    <Text style={{ ...Typography.caption2, color: group.color, letterSpacing: 1.5, fontWeight: '700' }}>{group.label}</Text>
+                    <Text style={{ ...Typography.caption2, color: colors.textDim }}>— {group.items.length}</Text>
                   </View>
-                  <Text style={{ ...Typography.caption2, color: colors.textDim }}>
-                    {h.rate}% · {h.doneCount} done · {h.habitMilestones.length} milestone{h.habitMilestones.length !== 1 ? 's' : ''}
-                  </Text>
-                </View>
-                <Text style={{ ...Typography.title3, color: colors.textDim, fontWeight: '300' }}>›</Text>
-              </TouchableOpacity>
-            ))}
-          </>
-        )}
+                  {group.items.map(h => <HabitCard key={h.id} h={h} />)}
+                </React.Fragment>
+              ))}
+            </>
+          );
+        })()}
+
 
         {/* ── BADGES ── */}
         {tab === 'badges' && (
           <>
-            {/* Section 1: Habit Milestones — with habit picker */}
-            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.md }}>
+            {/* Section 1: Habit Milestones — accordion */}
+            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.xs }}>
               HABIT MILESTONES
             </Text>
+            <Text style={{ ...Typography.caption1, color: colors.textDim, marginBottom: Spacing.lg }}>
+              Tap any habit to see its milestone progress
+            </Text>
 
-            {/* Habit selector */}
-            {(data?.habitStats || []).length > 0 ? (
-              <>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.md }}>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    {(data?.habitStats || []).map(h => {
-                      const isSelected = h.id === selectedHabitId;
-                      return (
-                        <TouchableOpacity
-                          key={h.id}
-                          style={{
-                            flexDirection: 'row', alignItems: 'center', gap: 6,
-                            paddingHorizontal: 12, paddingVertical: 7,
-                            borderRadius: Radius.full, borderWidth: 1.5,
-                            borderColor:     isSelected ? (h.color || colors.gold) : colors.separator,
-                            backgroundColor: isSelected ? (h.color || colors.gold) + '20' : colors.backgroundCard,
-                          }}
-                          onPress={() => setSelectedHabitId(h.id)}
-                        >
-                          <Text style={{ fontSize: 14 }}>{h.icon}</Text>
-                          <Text style={{
-                            ...Typography.caption1,
-                            color:      isSelected ? (h.color || colors.gold) : colors.textMuted,
-                            fontWeight: isSelected ? '700' : '400',
-                            maxWidth:   90,
-                          }} numberOfLines={1}>{h.name}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </ScrollView>
-
-                {/* Selected habit's milestone slots */}
-                {selectedHabit && (
-                  <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.lg, marginBottom: Spacing.xl }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.lg }}>
-                      <Text style={{ fontSize: 20 }}>{selectedHabit.icon}</Text>
-                      <Text style={{ ...Typography.headline, color: colors.textPrimary }}>{selectedHabit.name}</Text>
-                      <View style={{ marginLeft: 'auto', backgroundColor: (selectedHabit.color || colors.gold) + '20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full }}>
-                        <Text style={{ ...Typography.caption2, color: selectedHabit.color || colors.gold, fontWeight: '700' }}>
-                          {selectedMilestones.length}/{MILESTONE_DAYS.length} earned
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, justifyContent: 'space-between' }}>
-                      {MILESTONE_DAYS.map(days => {
-                        const info   = MILESTONE_INFO[days] || {};
-                        const earned = selectedMilestones.find(m => m.milestone_days === days);
-                        const isNext = !earned && !selectedMilestones.find(m => m.milestone_days > days) &&
-                          selectedMilestones.length === MILESTONE_DAYS.indexOf(days);
-                        return (
-                          <View key={days} style={{
-                            width: '30%',
-                            borderRadius: Radius.lg,
-                            borderWidth: earned ? 1.5 : 1,
-                            padding: Spacing.md,
-                            alignItems: 'center',
-                            gap: 4,
-                            backgroundColor: earned ? colors.goldAlpha15 : colors.backgroundElevated,
-                            borderColor:     earned ? colors.gold : colors.separator,
-                            opacity:         earned ? 1 : 0.5,
-                          }}>
-                            <Text style={{ fontSize: 24 }}>{earned ? info.badge : '🔒'}</Text>
-                            <Text style={{ ...Typography.caption1, fontWeight: '700', color: earned ? colors.gold : colors.textDim }}>
-                              {days}d
-                            </Text>
-                            <Text style={{ fontSize: 9, color: colors.textDim, textAlign: 'center' }}>{info.title || ''}</Text>
-                            {earned && (
-                              <Text style={{ fontSize: 8, color: colors.green }}>
-                                ✓ {new Date(earned.achieved_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                              </Text>
-                            )}
-                            {!earned && <Text style={{ fontSize: 8, color: colors.textDim }}>🔒 Locked</Text>}
-                          </View>
-                        );
-                      })}
-                    </View>
-                    <Text style={{ ...Typography.caption2, color: colors.textDim, textAlign: 'center', marginTop: Spacing.md }}>
-                      Tap a habit above to see its milestone progress
-                    </Text>
-                  </View>
-                )}
-              </>
-            ) : (
+            {(data?.habitStats || []).length === 0 ? (
               <Text style={{ ...Typography.body, color: colors.textDim, textAlign: 'center', padding: 20 }}>
                 No habits yet. Add habits to unlock milestones.
               </Text>
+            ) : (
+              (data?.habitStats || []).map(h => {
+                const isExpanded  = h.id === selectedHabitId;
+                const accent      = h.color || colors.gold;
+                const earnedCount = h.habitMilestones.length;
+                const progressPct = (earnedCount / MILESTONE_DAYS.length) * 100;
+                return (
+                  <View key={h.id} style={{ marginBottom: Spacing.sm }}>
+                    {/* Habit row */}
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+                        backgroundColor: isExpanded ? accent + '12' : colors.backgroundCard,
+                        borderWidth: 1,
+                        borderColor: isExpanded ? accent + '60' : colors.separator,
+                        borderRadius: Radius.lg,
+                        borderBottomLeftRadius:  isExpanded ? 0 : Radius.lg,
+                        borderBottomRightRadius: isExpanded ? 0 : Radius.lg,
+                        padding: Spacing.lg,
+                      }}
+                      onPress={() => setSelectedHabitId(isExpanded ? null : h.id)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={{ width: 42, height: 42, borderRadius: Radius.md, backgroundColor: accent + '20', alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ fontSize: 22 }}>{h.icon}</Text>
+                      </View>
+                      <View style={{ flex: 1, gap: 5 }}>
+                        <Text style={{ ...Typography.callout, color: colors.textPrimary, fontWeight: '600' }} numberOfLines={1}>{h.name}</Text>
+                        <View style={{ height: 3, backgroundColor: colors.backgroundElevated, borderRadius: Radius.full, overflow: 'hidden' }}>
+                          <View style={{ height: '100%', width: `${progressPct}%`, backgroundColor: accent, borderRadius: Radius.full }} />
+                        </View>
+                        <Text style={{ ...Typography.caption2, color: colors.textDim }}>
+                          {earnedCount}/{MILESTONE_DAYS.length} milestones{earnedCount === MILESTONE_DAYS.length ? ' · All complete 🔱' : ''}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 11, color: isExpanded ? accent : colors.textDim }}>{isExpanded ? '▲' : '▼'}</Text>
+                    </TouchableOpacity>
+
+                    {/* Expanded milestone grid */}
+                    {isExpanded && (
+                      <View style={{
+                        backgroundColor: colors.backgroundCard,
+                        borderWidth: 1, borderTopWidth: 0,
+                        borderColor: accent + '60',
+                        borderBottomLeftRadius: Radius.lg,
+                        borderBottomRightRadius: Radius.lg,
+                        padding: Spacing.lg,
+                      }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, justifyContent: 'space-between' }}>
+                          {MILESTONE_DAYS.map(days => {
+                            const info      = MILESTONE_INFO[days] || {};
+                            const milestone = h.habitMilestones.find(m => m.milestone_days === days);
+                            const isNext    = !milestone &&
+                              !h.habitMilestones.find(m => m.milestone_days > days) &&
+                              h.habitMilestones.length === MILESTONE_DAYS.indexOf(days);
+                            return (
+                              <View key={days} style={{
+                                width: '30%', borderRadius: Radius.lg,
+                                borderWidth: milestone ? 1.5 : 1, padding: Spacing.md,
+                                alignItems: 'center', gap: 4,
+                                backgroundColor: milestone ? accent + '15' : colors.backgroundElevated,
+                                borderColor:     milestone ? accent : isNext ? accent + '50' : colors.separator,
+                                opacity:         milestone ? 1 : isNext ? 0.8 : 0.4,
+                              }}>
+                                <Text style={{ fontSize: 22 }}>{milestone ? info.badge : isNext ? info.badge : '🔒'}</Text>
+                                <Text style={{ ...Typography.caption1, fontWeight: '700', color: milestone ? accent : colors.textDim }}>{days}d</Text>
+                                <Text style={{ fontSize: 8, color: milestone ? colors.textSecondary : colors.textDim, textAlign: 'center' }}>{info.title}</Text>
+                                {milestone ? (
+                                  <Text style={{ fontSize: 8, color: colors.green, fontWeight: '700' }}>
+                                    ✓ {new Date(milestone.achieved_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                                  </Text>
+                                ) : isNext ? (
+                                  <Text style={{ fontSize: 8, color: accent }}>next</Text>
+                                ) : (
+                                  <Text style={{ fontSize: 8, color: colors.textDim }}>🔒</Text>
+                                )}
+                              </View>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                );
+              })
             )}
 
             {/* Section 2: Journey Badges (overall) */}
-            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.xs }}>
+            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, marginBottom: Spacing.xs, marginTop: Spacing.xl }}>
               JOURNEY BADGES
             </Text>
             <Text style={{ ...Typography.caption1, color: colors.textDim, marginBottom: Spacing.md, lineHeight: 18 }}>
-              Overall achievements for your entire karma journey — harder to earn than habit milestones.
+              Overall achievements across your entire journey. Early badges unlock quickly — karma score badges (600+) are the real test.
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
               {JOURNEY_BADGES.map(badge => {
