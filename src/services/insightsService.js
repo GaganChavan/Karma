@@ -5,7 +5,7 @@
 
 import { getDatabase } from '../database/database';
 
-const APP_BIRTH = '2026-05-01';
+import { APP_BIRTH } from '../constants/appConfig';
 
 const _localDate = (d) => {
   const y  = d.getFullYear();

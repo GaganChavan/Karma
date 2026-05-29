@@ -26,7 +26,7 @@ const WFOModeScreen = ({ navigation }) => {
   const [wfoCity,   setWfoCity]   = useState('Bangalore');
   const [loading,   setLoading]   = useState(true);
   const [saving,    setSaving]    = useState(false);
-  const [alterEgo,  setAlterEgo]  = useState('Neel');
+  const [alterEgo,  setAlterEgo]  = useState('Gagan');
 
   useEffect(() => { _loadData(); }, []);
 
@@ -46,7 +46,7 @@ const WFOModeScreen = ({ navigation }) => {
       setWfoStats(stats);
       setHomeCity(home || 'Hassan');
       setWfoCity(city || 'Bangalore');
-      setAlterEgo(ego || 'Neel');
+      setAlterEgo(ego || 'Gagan');
     } catch (err) {
       console.warn('WFOMode load:', err.message);
     } finally {

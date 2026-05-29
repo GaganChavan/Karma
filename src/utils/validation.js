@@ -5,7 +5,7 @@ export const Validators = {
 
   habitName: (name) => {
     if (!name || name.trim().length === 0) {
-      return { valid: false, message: "Habit name can't be empty, Neel" };
+      return { valid: false, message: "Habit name can't be empty, Gagan" };
     }
     if (name.trim().length < 3) {
       return { valid: false, message: 'Habit name must be at least 3 characters' };

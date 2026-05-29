@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
 import { getSetting } from '../database/habitService';
 import { getFullStats } from '../services/gamificationService';
+import { GOAL_NAME, VEDANTIC_PARA, TRANSFORMATION_SENTENCE } from '../constants/appConfig';
 
 const Section = ({ title, icon, children, colors }) => {
   const [open, setOpen] = useState(false);
@@ -87,6 +88,16 @@ const KnowKarmaScreen = ({ navigation }) => {
           TAP ANY SECTION TO EXPAND
         </Text>
 
+        {/* The Name */}
+        <Section title="The Name — Gagan ☸" icon="🌌" colors={colors}>
+          {VEDANTIC_PARA.split('\n\n').map((para, i) => (
+            <P key={i} colors={colors}>{para}</P>
+          ))}
+          <Text style={{ ...Typography.callout, color: colors.gold, fontStyle: 'italic', textAlign: 'center', marginTop: Spacing.sm }}>
+            "{TRANSFORMATION_SENTENCE}"
+          </Text>
+        </Section>
+
         {/* XP */}
         <Section title="What is XP?" icon="⚡" colors={colors}>
           <P colors={colors}>XP (Experience Points) is your lifetime discipline counter. Every action earns or costs XP — it never resets.</P>
@@ -94,7 +105,7 @@ const KnowKarmaScreen = ({ navigation }) => {
             <Row label="Do a habit (build)"       value="+1 XP"  color={colors.green}   colors={colors} />
             <Row label="Resist a break habit"      value="+2 XP"  color={colors.green}   colors={colors} />
             <Row label="Perfect day (all habits)"  value="+5 XP"  color={colors.green}   colors={colors} />
-            <Row label="Intentional skip"          value="–1 XP"  color={colors.orange}  colors={colors} />
+            <Row label="Intentional skip"          value="0 XP"   color={colors.textDim} colors={colors} />
             <Row label="Auto-skipped (forgot log)" value="–2 XP"  color={colors.orange}  colors={colors} />
             <Row label="Missed habit"              value="–2 XP"  color={colors.red}     colors={colors} />
             <Row label="Slip on break habit"       value="–5 XP"  color={colors.red}     colors={colors} />
@@ -127,7 +138,7 @@ const KnowKarmaScreen = ({ navigation }) => {
               { score: '400–599', title: 'Disciplined',  icon: '⚔️' },
               { score: '600–799', title: 'Unstoppable',  icon: '⚡' },
               { score: '800–999', title: 'Transcendent', icon: '🔱' },
-              { score: '1000',    title: 'Dhruv',        icon: '👑' },
+              { score: '1000',    title: GOAL_NAME,      icon: '👑' },
             ].map((t, i) => (
               <Row key={i} label={`${t.icon}  ${t.title}`} value={`Score ${t.score}`} color={colors.gold} colors={colors} />
             ))}

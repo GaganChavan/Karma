@@ -270,7 +270,7 @@ const _backfillXPv2 = async (db) => {
         resisted:     2,
         missed:      -2,
         slip:        -5,
-        skipped:     -1,  // only for non-WFO skips
+        skipped:      0,  // intentional skip — no penalty
         auto_skipped:-2,
       };
 
@@ -354,7 +354,7 @@ const _seedDefaultSettings = async (db) => {
     ['total_xp',             '0'],
     ['notification_master',  'true'],
     ['app_theme',            'dark'],
-    ['identity_statement',   'I am Gagan. My mind holds the reins. The horses do not rule me.'],
+    ['identity_statement',   'I am what I repeatedly do. I am not my intentions. I am my actions.'],
     ['identity_shown_date',  ''],
     ['wa_daily',             'true'],
     ['wa_weekly',            'true'],
@@ -373,7 +373,7 @@ const _seedDefaultSettings = async (db) => {
     // Phase F-1 guards
     ['xp_backfill_done',     'true'],  // skip old backfill — v2 handles it
     ['xp_v2_done',           'false'],
-    ['sip_migration_done',   'false'],
+    ['sip_migration_done',   'true'],
     // Phase F-4: notification configs (JSON array of notification objects)
     ['notification_configs', JSON.stringify([
       {

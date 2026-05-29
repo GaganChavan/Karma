@@ -31,7 +31,7 @@ const CelebrationScreen = ({ navigation, route }) => {
   const {
     xpEarned  = 0,
     perfectDay = false,
-    alterEgo  = 'Neel',
+    alterEgo  = 'Gagan',
   } = route?.params || {};
 
   const [stats,    setStats]    = useState(null);

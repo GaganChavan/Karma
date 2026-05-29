@@ -1,7 +1,9 @@
 // ─── KARMA APP — BUILT-IN SLOGANS ───────────────────────────────────
 // 300 curated slogans. No internet needed. No repeats within 60 days.
-// Categories: Discipline, Pisces, Indian Philosophy, Sky/Neel/Cosmos,
+// Categories: Discipline, Pisces, Indian Philosophy, Sky/Gagan/Cosmos,
 //             Warrior/Stoic, Breaking habits, Morning, Night reflection.
+
+import { DEFAULT_NAME, GOAL_NAME } from './appConfig';
 
 export const SLOGANS = {
   discipline: [
@@ -50,7 +52,7 @@ export const SLOGANS = {
   pisces: [
     "Like water, find your path around every obstacle — quietly, persistently.",
     "The ocean does not apologise for its depth. Neither should you.",
-    "Still waters run deep. So do you, Neel.",
+    "Still waters run deep. So do you, Gagan.",
     "Pisces: born at the end of seasons, carrying the wisdom of all that came before.",
     "Water does not fight the rock. It outlasts it.",
     "The fish knows — the surface is noise. Truth lives in the deep.",
@@ -94,14 +96,14 @@ export const SLOGANS = {
     "Dharma is not what you believe. Dharma is what you do.",
     "Even a single lamp can drive away centuries of darkness.",
     "The Upanishads say: You are not the body. You are the one who watches.",
-    "Neel — the sky — has no ceiling. Go as high as you dare.",
+    "Gagan — the sky — has no ceiling. Go as high as you dare.",
     "A Yogi is not someone who never falls. A Yogi is someone who always rises.",
   ],
 
   sky_cosmos: [
     "Gagan — the sky — has no boundary. Neither do you.",
     "The sky does not shrink because of clouds. It waits.",
-    "Neel — blue as the infinite sky above every storm.",
+    "Gagan — the open sky above every storm.",
     "Stars don't compete with each other. They simply shine.",
     "The universe is 13.8 billion years old. Your excuses are much younger.",
     "Every constellation was once a collection of separate, unremarkable stars.",
@@ -174,7 +176,7 @@ export const SLOGANS = {
 
   morning: [
     "The morning belongs to those who claimed it the night before.",
-    "Every sunrise is an invitation. Accept it, Neel.",
+    "Every sunrise is an invitation. Accept it, Gagan.",
     "5 AM. The world is asleep. Your future is awake.",
     "Win the morning. Win the day.",
     "The first hour of the day is the rudder of the day.",
@@ -191,7 +193,7 @@ export const SLOGANS = {
   ],
 
   night_reflection: [
-    "Before you sleep: did today's Neel deserve tomorrow's sunrise?",
+    "Before you sleep: did today's Gagan deserve tomorrow's sunrise?",
     "The night is when warriors rest and plan. Rest well. Plan better.",
     "You cannot undo today. You can build tomorrow.",
     "Count your wins before you count your failings. Both matter.",
@@ -205,7 +207,7 @@ export const SLOGANS = {
     "You showed up today. That is enough. Tomorrow, show up again.",
     "Darkness is not the end of the sky. It is the sky resting.",
     "What you are grateful for tonight, you will attract more of tomorrow.",
-    "Close your eyes knowing today's Neel was better than yesterday's.",
+    "Close your eyes knowing today's Gagan was better than yesterday's.",
   ],
 };
 
@@ -221,20 +223,20 @@ export const getTodaySlogan = () => {
   return ALL_SLOGANS[index];
 };
 
-// Get milestone message personal to Neel
+// Get milestone message personal to Gagan
 export const getMilestoneMessage = (days, habitName) => {
   const messages = {
-    3:   `The seed is planted, Neel. "${habitName}" has begun.`,
+    3:   `The seed is planted, ${DEFAULT_NAME}. "${habitName}" has begun.`,
     7:   `Seven sunrises. Seven choices. The Pole Star is watching.`,
-    14:  `14 days of karma earned through "${habitName}". Dhruv would approve.`,
-    21:  `21 days — neuroscience says you're rewiring, Neel. You're no longer forcing it. You're becoming it.`,
+    14:  `14 days of karma earned through "${habitName}". The sky held still.`,
+    21:  `21 days — neuroscience says you're rewiring, ${DEFAULT_NAME}. You're no longer forcing it. You're becoming it.`,
     30:  `One month. 30 sunrises. The sky you're named after has no ceiling.`,
     48:  `Day 48. Most people quit before this. You are now in the top 5%.`,
     60:  `60 days deep — like Pisces water, quiet, persistent, unstoppable.`,
     75:  `Between 60 and 90 days motivation dips. You're still here. That's everything.`,
-    90:  `90 days. This is no longer a habit, Neel. This is who you are.`,
+    90:  `90 days. This is no longer a habit, ${DEFAULT_NAME}. This is who you are.`,
     180: `Half a year of karma. The sky has witnessed every single day.`,
-    365: `365 days ago Gagan made a choice. Today Neel stands where most only dream.`,
+    365: `365 days ago ${DEFAULT_NAME} chose the reins. Today he is ${GOAL_NAME}.`,
   };
-  return messages[days] || `${days} days strong, Neel. Keep building your karma.`;
+  return messages[days] || `${days} days strong, ${DEFAULT_NAME}. Keep building your karma.`;
 };

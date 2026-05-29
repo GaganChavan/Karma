@@ -28,7 +28,7 @@ const _encode = (text) => encodeURIComponent(text);
 
 export const sendDailyWhatsApp = async (reportData) => {
   const {
-    alterEgo  = 'Neel',
+    alterEgo  = 'Gagan',
     habits    = [],
     checkins  = {},
     streaks   = {},
@@ -99,7 +99,7 @@ ${alterEgo} showed up.`;
 
 export const sendWeeklyWhatsApp = async (weekData) => {
   const {
-    alterEgo       = 'Neel',
+    alterEgo       = 'Gagan',
     weeklyRate     = 0,
     bestHabit      = null,
     needsWork      = null,

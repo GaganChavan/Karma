@@ -1,6 +1,6 @@
 // ─── KARMA APP — IDENTITY SCREEN ─────────────────────────────────────
 // Shows every morning before home screen.
-// Neel's identity declaration + daily shloka.
+// Gagan's identity declaration + daily shloka.
 // Chariot framework — the soul of the app.
 // Auto-dismisses after 4 seconds. Skippable.
 
@@ -13,13 +13,13 @@ import { SafeAreaView }          from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius } from '../constants/colors';
 import { getDailyIdentityShloka, SHLOKAS } from '../constants/shlokas';
 import { getSetting }            from '../database/habitService';
+import { DEFAULT_NAME, DEFAULT_DECLARATION, TRANSFORMATION_SENTENCE } from '../constants/appConfig';
 import ShlokaDisplay             from '../components/ShlokaDisplay';
 
 const { height } = Dimensions.get('window');
 const IdentityScreen = ({ onDismiss }) => {
-  const [identityStatement, setIdentityStatement] = useState(
-    'I am Neel. My mind holds the reins. The horses do not rule me.'
-  );
+  const [identityStatement, setIdentityStatement] = useState(DEFAULT_DECLARATION);
+  const [alterEgo,          setAlterEgo]          = useState(DEFAULT_NAME);
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
@@ -33,8 +33,12 @@ const IdentityScreen = ({ onDismiss }) => {
 
   const _loadIdentity = async () => {
     try {
-      const saved = await getSetting('identity_statement');
+      const [saved, ego] = await Promise.all([
+        getSetting('identity_statement'),
+        getSetting('alter_ego'),
+      ]);
       if (saved && saved.trim().length > 0) setIdentityStatement(saved);
+      if (ego  && ego.trim().length  > 0)  setAlterEgo(ego);
     } catch {}
   };
 
@@ -88,8 +92,9 @@ const IdentityScreen = ({ onDismiss }) => {
 
           {/* Identity statement */}
           <View style={styles.identityCard}>
-            <Text style={styles.identityLabel}>YOUR DECLARATION, NEEL</Text>
+            <Text style={styles.identityLabel}>YOUR DECLARATION, {alterEgo.toUpperCase()}</Text>
             <Text style={styles.identityText}>"{identityStatement}"</Text>
+            <Text style={styles.transformationHint}>{TRANSFORMATION_SENTENCE}</Text>
           </View>
 
           {/* Chariot framework — compact */}
@@ -172,6 +177,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 24,
     fontStyle: 'italic',
+  },
+  transformationHint: {
+    ...Typography.caption2,
+    color:         Colors.gold,
+    textAlign:     'center',
+    letterSpacing: 0.5,
+    opacity:       0.7,
+    marginTop:     4,
+    fontStyle:     'italic',
   },
 
   // Chariot card

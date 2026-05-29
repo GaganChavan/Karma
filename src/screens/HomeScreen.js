@@ -18,6 +18,7 @@ import { SafeAreaView }    from 'react-native-safe-area-context';
 import { useTheme, Spacing, Radius, Typography } from '../constants/colors';
 import { DateUtils }       from '../utils/dateUtils';
 import { getGreetingShloka } from '../constants/shlokas';
+import { VEDANTIC_PARA }     from '../constants/appConfig';
 import ShlokaDisplay       from '../components/ShlokaDisplay';
 import {
   getAllHabits, getTodayCheckins, checkIn,
@@ -743,6 +744,15 @@ const HomeScreen = ({ navigation }) => {
             </View>
           </TouchableOpacity>
         )}
+
+        {/* Vedantic footer */}
+        <View style={{ marginHorizontal: Spacing.xl, marginTop: Spacing.xl, padding: Spacing.xl, borderTopWidth: 1, borderTopColor: colors.separator, gap: Spacing.md }}>
+          {VEDANTIC_PARA.split('\n\n').map((para, i) => (
+            <Text key={i} style={{ ...Typography.caption1, color: colors.textDim, textAlign: 'center', lineHeight: 18, fontStyle: i === 3 ? 'italic' : 'normal', color: i === 3 ? colors.gold : colors.textDim }}>
+              {para}
+            </Text>
+          ))}
+        </View>
 
         <View style={{ height: 120 }} />
       </Animated.ScrollView>

@@ -422,11 +422,25 @@ export const editPastCheckin = async (habitId, date, newStatus, note = null) => 
 };
 
 // ── STREAKS ───────────────────────────────────────────────────────────
+// Returns true if the habit was scheduled on the given dateStr (YYYY-MM-DD)
+const _isScheduledOn = (habit, dateStr) => {
+  if (!habit.frequency || habit.frequency === 'daily') return true;
+  if (habit.frequency === 'specific_days') {
+    const scheduled = (habit.days || '').split(',').map(s => parseInt(s.trim(), 10));
+    const jsDay  = new Date(dateStr + 'T00:00:00').getDay();
+    const appDay = jsDay === 0 ? 7 : jsDay;
+    return scheduled.includes(appDay);
+  }
+  return true;
+};
+
 export const getStreak = async (habitId) => {
   if (!habitId) return { current: 0, longest: 0 };
   try {
     const db    = await getDatabase();
-    const habit = await db.getFirstAsync('SELECT type, created_at FROM habits WHERE id = ?', [habitId]);
+    const habit = await db.getFirstAsync(
+      'SELECT type, created_at, frequency, days FROM habits WHERE id = ?', [habitId]
+    );
     if (!habit) return { current: 0, longest: 0 };
     const rows = await db.getAllAsync(
       `SELECT date, status FROM checkins WHERE habit_id = ? ORDER BY date DESC LIMIT 400`, [habitId]
@@ -436,7 +450,7 @@ export const getStreak = async (habitId) => {
     const statusMap = {};
     rows.forEach(r => { statusMap[r.date] = r.status; });
 
-    const today       = getTodayDate();  // TIMEZONE FIX
+    const today       = getTodayDate();
     const createdDate = new Date(habit.created_at || today);
     createdDate.setHours(0, 0, 0, 0);
 
@@ -447,16 +461,19 @@ export const getStreak = async (habitId) => {
     d.setHours(0, 0, 0, 0);
 
     while (true) {
-      const dateStr = _localDate(d);  // TIMEZONE FIX: was d.toISOString().split('T')[0]
-      const status  = statusMap[dateStr];
+      const dateStr    = _localDate(d);
+      const status     = statusMap[dateStr];
+      const scheduled  = _isScheduledOn(habit, dateStr);
 
       if (d < createdDate) break;
 
-      if (status === 'done' || status === 'resisted') {
+      if (!scheduled) {
+        // Rest day — neutral, same as intentional skip, never breaks streak
+      } else if (status === 'done' || status === 'resisted') {
         tempStreak++;
         if (isCurrentStreak) current++;
       } else if (status === 'skipped') {
-        // Streak frozen — neither increments nor breaks (intentional skip)
+        // Intentional skip — streak frozen, neither increments nor breaks
       } else if (status === 'missed' || status === 'slip' || status === 'auto_skipped') {
         if (isCurrentStreak) isCurrentStreak = false;
         if (tempStreak > longest) longest = tempStreak;

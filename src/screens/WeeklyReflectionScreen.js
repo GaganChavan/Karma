@@ -143,7 +143,7 @@ const WeeklyReflectionScreen = ({ navigation }) => {
               <View style={styles.questionCard}>
                 <Text style={styles.questionNum}>01</Text>
                 <Text style={styles.questionText}>
-                  What went well this week, Neel?
+                  What went well this week, Gagan?
                 </Text>
                 <Text style={styles.questionHint}>
                   Name the victories. The rein held somewhere.
@@ -185,7 +185,7 @@ const WeeklyReflectionScreen = ({ navigation }) => {
               <View style={[styles.questionCard, { borderColor: Colors.goldAlpha40 }]}>
                 <Text style={[styles.questionNum, { color: Colors.gold }]}>03</Text>
                 <Text style={styles.questionText}>
-                  What does Neel commit to next week?
+                  What does Gagan commit to next week?
                 </Text>
                 <Text style={styles.questionHint}>
                   One specific change. Not a wish. A declaration.

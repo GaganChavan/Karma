@@ -18,6 +18,7 @@ import { SafeAreaView }  from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
 import { DateUtils }     from '../utils/dateUtils';
+import { APP_BIRTH as appConfigBirth } from '../constants/appConfig';
 import {
   getHabitById, getStreak, getCheckinsForHabit,
   getPunishmentLevel, getWeeklyCompletionRate,
@@ -69,7 +70,7 @@ const HabitHeatmap90 = ({ checkins90, accentColor, habitCreatedAt }) => {
 
   const ninetyAgo = new Date(today);
   ninetyAgo.setDate(today.getDate() - 89);
-  const APP_BIRTH   = new Date('2026-05-01T00:00:00');
+  const APP_BIRTH   = new Date(appConfigBirth + 'T00:00:00');
   const candidates  = [createdDate, APP_BIRTH, ninetyAgo];
   const startDate   = candidates.reduce((max, d) => d > max ? d : max);
 

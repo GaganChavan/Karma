@@ -25,12 +25,12 @@ import {
 } from '../services/gamificationService';
 import { getDatabase }     from '../database/database';
 import { generateInsights } from '../services/insightsService';
+import { APP_BIRTH }        from '../constants/appConfig';
 
 const { width } = Dimensions.get('window');
 
 const CELL = 11;
 const GAP  = 2;
-const APP_BIRTH = '2026-05-01';
 const MILESTONE_DAYS = [3, 7, 14, 21, 30, 48, 60, 75, 90, 180, 365];
 
 const CATEGORY_ORDER = [

@@ -1,6 +1,6 @@
 // ─── KARMA APP — BEFORE vs NOW SCREEN (PHASE D) ─────────────────────
 // Unlocks at 90 days of data.
-// Shows Neel who he was vs who he is.
+// Shows Gagan who he was vs who he is becoming.
 // The transformation visualised.
 
 import React, { useState, useEffect } from 'react';
@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
 import { getBeforeNowData } from '../services/wfoService';
 import { getFullStats }     from '../services/gamificationService';
+import { TRANSFORMATION_SENTENCE } from '../constants/appConfig';
 import ShlokaDisplay        from '../components/ShlokaDisplay';
 import { SHLOKAS }          from '../constants/shlokas';
 
@@ -243,11 +244,11 @@ const BeforeNowScreen = ({ navigation }) => {
         {/* Identity declaration */}
         <View style={{ backgroundColor: colors.goldAlpha15, borderRadius: Radius.xl, borderWidth: 1, borderColor: colors.goldAlpha40, padding: Spacing.xl, alignItems: 'center', gap: Spacing.md }}>
           <Text style={{ ...Typography.caption2, color: colors.gold, letterSpacing: 3 }}>THE DECLARATION HOLDS</Text>
-          <Text style={{ ...Typography.title3, color: colors.textPrimary, textAlign: 'center' }}>
-            Neel → Dhruv
+          <Text style={{ ...Typography.title3, color: colors.gold, textAlign: 'center', fontStyle: 'italic' }}>
+            {TRANSFORMATION_SENTENCE}
           </Text>
           <Text style={{ ...Typography.callout, color: colors.textMuted, textAlign: 'center', fontStyle: 'italic', lineHeight: 22 }}>
-            The Pole Star does not move while empires rise and fall. 90 days of proof that you are becoming immovable.
+            The sky does not become still by accident. 90 days of choosing made this real.
           </Text>
         </View>
 

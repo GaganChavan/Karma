@@ -8,6 +8,7 @@
 
 import { getDatabase }          from '../database/database';
 import { getSetting, setSetting } from '../database/habitService';
+import { APP_BIRTH, GOAL_NAME }  from '../constants/appConfig';
 
 // ── Timezone-safe local date helper ──────────────────────────────────
 // toISOString() returns UTC — gives YESTERDAY in IST before 5:30 AM
@@ -19,16 +20,13 @@ const _localDate = (d) => {
 };
 const _today = () => _localDate(new Date());
 
-// ── APP BIRTH DATE ────────────────────────────────────────────────────
-const APP_BIRTH = '2026-05-01';
-
 // ── XP VALUES ─────────────────────────────────────────────────────────
 export const XP_VALUES = {
   habit_done:        1,
   habit_resisted:    2,
   habit_undo_done:  -1,
   habit_undo_resist:-2,
-  skipped:          -1,
+  skipped:           0,
   auto_skipped:     -2,
   missed:           -2,
   slip:             -5,
@@ -55,7 +53,7 @@ export const KARMA_TITLES = [
   { minScore:  400, title: 'Disciplined',  icon: '⚔️', color: '#0A84FF' },
   { minScore:  600, title: 'Unstoppable',  icon: '⚡', color: '#BF5AF2' },
   { minScore:  800, title: 'Transcendent', icon: '🔱', color: '#FFD700' },
-  { minScore: 1000, title: 'Dhruv',        icon: '👑', color: '#FFD700' },
+  { minScore: 1000, title: GOAL_NAME,       icon: '👑', color: '#FFD700' },
 ];
 
 export const getKarmaTitle = (karmaScore) => {
@@ -253,7 +251,7 @@ export const getKarmaScore = async () => {
     // WFO fix: exclude WFO-skippable habits when WFO mode is on (mirrors checkPerfectDay)
     const wfoMode = (await getSetting('wfo_mode')) === 'true';
     const habits  = await db.getAllAsync(
-      `SELECT id, created_at FROM habits WHERE is_active = 1 AND is_paused = 0${wfoMode ? ' AND is_wfo_skip = 0' : ''}`
+      `SELECT id, created_at, frequency, days FROM habits WHERE is_active = 1 AND is_paused = 0${wfoMode ? ' AND is_wfo_skip = 0' : ''}`
     ) || [];
     if (habits.length === 0) return 0;
 
@@ -281,13 +279,28 @@ export const getKarmaScore = async () => {
       const start      = habitBirth > effectiveWindowStart ? habitBirth : effectiveWindowStart;
       const startD     = new Date(start    + 'T00:00:00');
       const endD       = new Date(todayStr + 'T00:00:00');
-      const days       = Math.floor((endD - startD) / 86400000) + 1;
-      if (days <= 0) continue;
+
+      // Count only days the habit was actually scheduled — rest days don't count against you
+      let scheduledDays = 0;
+      if (!habit.frequency || habit.frequency === 'daily') {
+        scheduledDays = Math.floor((endD - startD) / 86400000) + 1;
+      } else {
+        const scheduledWeekdays = (habit.days || '1,2,3,4,5,6,7')
+          .split(',').map(s => parseInt(s.trim(), 10));
+        const d = new Date(startD);
+        while (d <= endD) {
+          const jsDay  = d.getDay();
+          const appDay = jsDay === 0 ? 7 : jsDay;
+          if (scheduledWeekdays.includes(appDay)) scheduledDays++;
+          d.setDate(d.getDate() + 1);
+        }
+      }
+      if (scheduledDays <= 0) continue;
 
       const summary  = summaryMap[habit.id];
       const skipped  = summary?.skipped_count || 0;
       const done     = summary?.done_count    || 0;
-      const possible = Math.max(0, days - skipped);
+      const possible = Math.max(0, scheduledDays - skipped);
       totalPossible += possible;
       totalDone     += done;
     }

@@ -23,7 +23,7 @@ import { getNeuralProgress }                from '../services/wfoService';
 import ShlokaDisplay                        from '../components/ShlokaDisplay';
 import { SHLOKAS }                          from '../constants/shlokas';
 
-const APP_BIRTH = '2026-05-01';
+import { APP_BIRTH } from '../constants/appConfig';
 
 // ── Calendar mini-heatmap for a single habit ─────────────────────────
 // Shows WHICH days were practiced — the actual calendar pattern.
