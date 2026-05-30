@@ -14,7 +14,6 @@ import { Colors, Typography, Spacing, Radius } from '../constants/colors';
 import { getDailyIdentityShloka, SHLOKAS } from '../constants/shlokas';
 import { getSetting }            from '../database/habitService';
 import { DEFAULT_NAME, DEFAULT_DECLARATION, TRANSFORMATION_SENTENCE } from '../constants/appConfig';
-import { getSetting } from '../database/habitService';
 import ShlokaDisplay             from '../components/ShlokaDisplay';
 
 const { height } = Dimensions.get('window');
