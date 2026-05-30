@@ -233,6 +233,7 @@ export const clearAllData = async () => {
     UPDATE settings SET value = ''      WHERE key = 'wfo_end_date';
     UPDATE settings SET value = 'false' WHERE key = 'xp_v2_done';
     UPDATE settings SET value = 'true'  WHERE key = 'sip_migration_done';
+    UPDATE settings SET value = ''      WHERE key = 'morning_brief';
   `);
 };
 

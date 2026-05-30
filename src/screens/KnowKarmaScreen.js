@@ -42,12 +42,20 @@ const P = ({ children, colors }) => (
 
 const KnowKarmaScreen = ({ navigation }) => {
   const { colors } = useTheme();
-  const [alterEgo, setAlterEgo] = useState('Gagan');
-  const [stats,    setStats]    = useState(null);
+  const [alterEgo,        setAlterEgo]        = useState('Gagan');
+  const [stats,           setStats]           = useState(null);
+  const [transformSentence, setTransformSentence] = useState(TRANSFORMATION_SENTENCE);
 
   useEffect(() => {
-    getSetting('alter_ego').then(v => setAlterEgo(v || 'Gagan')).catch(() => {});
-    getFullStats().then(setStats).catch(() => {});
+    Promise.all([
+      getSetting('alter_ego'),
+      getSetting('transformation_sentence'),
+      getFullStats(),
+    ]).then(([ego, ts, s]) => {
+      setAlterEgo(ego || 'Gagan');
+      if (ts && ts.trim().length > 0) setTransformSentence(ts);
+      setStats(s);
+    }).catch(() => {});
   }, []);
 
   const kt = stats?.karmaTitle;
@@ -94,7 +102,7 @@ const KnowKarmaScreen = ({ navigation }) => {
             <P key={i} colors={colors}>{para}</P>
           ))}
           <Text style={{ ...Typography.callout, color: colors.gold, fontStyle: 'italic', textAlign: 'center', marginTop: Spacing.sm }}>
-            "{TRANSFORMATION_SENTENCE}"
+            "{transformSentence}"
           </Text>
         </Section>
 
