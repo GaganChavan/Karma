@@ -5,7 +5,7 @@
 // 3. _restoreData: xp_log now restored (was exported but never restored)
 // 4. clearAllData: also clears journey_milestones + sip_migration_done reset
 
-import * as FileSystem    from 'expo-file-system';
+import * as FileSystem    from 'expo-file-system/legacy';
 import * as Sharing       from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { Alert }          from 'react-native';
