@@ -138,7 +138,7 @@ const KnowKarmaScreen = ({ navigation }) => {
               { score: '400–599', title: 'Disciplined',  icon: '⚔️' },
               { score: '600–799', title: 'Unstoppable',  icon: '⚡' },
               { score: '800–999', title: 'Transcendent', icon: '🔱' },
-              { score: '1000',    title: GOAL_NAME,      icon: '👑' },
+              { score: '1000',    title: stats?.goalName || GOAL_NAME, icon: '👑' },
             ].map((t, i) => (
               <Row key={i} label={`${t.icon}  ${t.title}`} value={`Score ${t.score}`} color={colors.gold} colors={colors} />
             ))}

@@ -13,25 +13,29 @@ import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
 import { getBeforeNowData } from '../services/wfoService';
 import { getFullStats }     from '../services/gamificationService';
 import { TRANSFORMATION_SENTENCE } from '../constants/appConfig';
+import { getSetting }       from '../database/habitService';
 import ShlokaDisplay        from '../components/ShlokaDisplay';
 import { SHLOKAS }          from '../constants/shlokas';
 
 const BeforeNowScreen = ({ navigation }) => {
   const { colors } = useTheme();
-  const [data,    setData]    = useState(null);
-  const [stats,   setStats]   = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [data,            setData]            = useState(null);
+  const [stats,           setStats]           = useState(null);
+  const [loading,         setLoading]         = useState(true);
+  const [transformSentence, setTransformSentence] = useState(TRANSFORMATION_SENTENCE);
 
   useEffect(() => { _loadData(); }, []);
 
   const _loadData = async () => {
     try {
-      const [bn, gam] = await Promise.all([
+      const [bn, gam, ts] = await Promise.all([
         getBeforeNowData(),
         getFullStats(),
+        getSetting('transformation_sentence'),
       ]);
       setData(bn);
       setStats(gam);
+      if (ts && ts.trim().length > 0) setTransformSentence(ts);
     } catch (err) {
       console.warn('BeforeNow load:', err.message);
     } finally {
@@ -245,7 +249,7 @@ const BeforeNowScreen = ({ navigation }) => {
         <View style={{ backgroundColor: colors.goldAlpha15, borderRadius: Radius.xl, borderWidth: 1, borderColor: colors.goldAlpha40, padding: Spacing.xl, alignItems: 'center', gap: Spacing.md }}>
           <Text style={{ ...Typography.caption2, color: colors.gold, letterSpacing: 3 }}>THE DECLARATION HOLDS</Text>
           <Text style={{ ...Typography.title3, color: colors.gold, textAlign: 'center', fontStyle: 'italic' }}>
-            {TRANSFORMATION_SENTENCE}
+            {transformSentence}
           </Text>
           <Text style={{ ...Typography.callout, color: colors.textMuted, textAlign: 'center', fontStyle: 'italic', lineHeight: 22 }}>
             The sky does not become still by accident. 90 days of choosing made this real.

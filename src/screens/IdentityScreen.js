@@ -19,9 +19,10 @@ import ShlokaDisplay             from '../components/ShlokaDisplay';
 
 const { height } = Dimensions.get('window');
 const IdentityScreen = ({ onDismiss }) => {
-  const [identityStatement, setIdentityStatement] = useState(DEFAULT_DECLARATION);
-  const [alterEgo,          setAlterEgo]          = useState(DEFAULT_NAME);
-  const [morningBrief,      setMorningBrief]      = useState(null);
+  const [identityStatement,    setIdentityStatement]    = useState(DEFAULT_DECLARATION);
+  const [alterEgo,             setAlterEgo]             = useState(DEFAULT_NAME);
+  const [morningBrief,         setMorningBrief]         = useState(null);
+  const [transformSentence,    setTransformSentence]    = useState(TRANSFORMATION_SENTENCE);
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
@@ -35,13 +36,15 @@ const IdentityScreen = ({ onDismiss }) => {
 
   const _loadIdentity = async () => {
     try {
-      const [saved, ego, brief] = await Promise.all([
+      const [saved, ego, brief, ts] = await Promise.all([
         getSetting('identity_statement'),
         getSetting('alter_ego'),
         getSetting('morning_brief'),
+        getSetting('transformation_sentence'),
       ]);
       if (saved && saved.trim().length > 0) setIdentityStatement(saved);
       if (ego  && ego.trim().length  > 0)  setAlterEgo(ego);
+      if (ts   && ts.trim().length   > 0)  setTransformSentence(ts);
       if (brief) {
         try { setMorningBrief(JSON.parse(brief)); } catch {}
       }
@@ -100,7 +103,7 @@ const IdentityScreen = ({ onDismiss }) => {
           <View style={styles.identityCard}>
             <Text style={styles.identityLabel}>YOUR DECLARATION, {alterEgo.toUpperCase()}</Text>
             <Text style={styles.identityText}>"{identityStatement}"</Text>
-            <Text style={styles.transformationHint}>{TRANSFORMATION_SENTENCE}</Text>
+            <Text style={styles.transformationHint}>{transformSentence}</Text>
             {morningBrief && (
               <View style={styles.briefCard}>
                 <Text style={styles.briefIcon}>{morningBrief.icon}</Text>

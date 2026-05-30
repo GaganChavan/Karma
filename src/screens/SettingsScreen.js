@@ -30,12 +30,18 @@ import { getTriggerPattern } from '../database/moodService';
 
 const SettingsScreen = ({ navigation }) => {
   const { colors, isDark, toggleTheme } = useTheme();
-  const [alterEgo,      setAlterEgo]      = useState('Gagan');
-  const [identityStmt,  setIdentityStmt]  = useState('');
-  const [editingName,   setEditingName]   = useState(false);
-  const [editingId,     setEditingId]     = useState(false);
-  const [tempName,      setTempName]      = useState('');
-  const [tempId,        setTempId]        = useState('');
+  const [alterEgo,        setAlterEgo]        = useState('Gagan');
+  const [identityStmt,    setIdentityStmt]    = useState('');
+  const [goalName,        setGoalName]        = useState('Jitendriya');
+  const [transformSent,   setTransformSent]   = useState('');
+  const [editingName,     setEditingName]     = useState(false);
+  const [editingId,       setEditingId]       = useState(false);
+  const [editingGoal,     setEditingGoal]     = useState(false);
+  const [editingTransform,setEditingTransform]= useState(false);
+  const [tempName,        setTempName]        = useState('');
+  const [tempId,          setTempId]          = useState('');
+  const [tempGoal,        setTempGoal]        = useState('');
+  const [tempTransform,   setTempTransform]   = useState('');
   const [notifEnabled,  setNotifEnabled]  = useState(true);
   const [waDaily,       setWaDaily]       = useState(true);
   const [waWeekly,      setWaWeekly]      = useState(true);
@@ -61,10 +67,14 @@ const SettingsScreen = ({ navigation }) => {
         getBackupInfo(),
         isWFOMode(),
       ]);
-      setAlterEgo(settings.alter_ego       || 'Gagan');
-      setTempName(settings.alter_ego       || 'Gagan');
-      setIdentityStmt(settings.identity_statement || '');
-      setTempId(settings.identity_statement || '');
+      setAlterEgo(settings.alter_ego               || 'Gagan');
+      setTempName(settings.alter_ego               || 'Gagan');
+      setIdentityStmt(settings.identity_statement  || '');
+      setTempId(settings.identity_statement        || '');
+      setGoalName(settings.goal_name               || 'Jitendriya');
+      setTempGoal(settings.goal_name               || 'Jitendriya');
+      setTransformSent(settings.transformation_sentence || '');
+      setTempTransform(settings.transformation_sentence || '');
       setNotifEnabled(settings.notification_master !== 'false');
       setWaDaily(settings.wa_daily  !== 'false');
       setWaWeekly(settings.wa_weekly !== 'false');
@@ -99,6 +109,26 @@ const SettingsScreen = ({ navigation }) => {
       setIdentityStmt(stmt);
       setEditingId(false);
       Alert.alert('✅ Identity Declared', 'Shown every morning.');
+    } catch (err) { Alert.alert('Error', err.message); }
+  };
+
+  const _saveGoalName = async () => {
+    const name = tempGoal.trim();
+    if (!name) { Alert.alert('Error', 'Goal name cannot be empty'); return; }
+    try {
+      await setSetting('goal_name', name);
+      setGoalName(name);
+      setEditingGoal(false);
+    } catch (err) { Alert.alert('Error', err.message); }
+  };
+
+  const _saveTransformSentence = async () => {
+    const s = tempTransform.trim();
+    if (!s) { Alert.alert('Error', 'Sentence cannot be empty'); return; }
+    try {
+      await setSetting('transformation_sentence', s);
+      setTransformSent(s);
+      setEditingTransform(false);
     } catch (err) { Alert.alert('Error', err.message); }
   };
 
@@ -314,6 +344,35 @@ const SettingsScreen = ({ navigation }) => {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
                 <TouchableOpacity style={s.saveBtn} onPress={_saveIdentity}><Text style={s.saveBtnText}>Save Declaration</Text></TouchableOpacity>
                 <TouchableOpacity onPress={() => setEditingId(false)}><Text style={s.cancelText}>Cancel</Text></TouchableOpacity>
+              </View>
+            </View>
+          )}
+          <View style={s.separator} />
+          {!editingGoal ? (
+            <TouchableOpacity style={s.row} onPress={() => { setTempGoal(goalName); setEditingGoal(true); }}>
+              <View><Text style={s.rowLabel}>Goal Identity</Text><Text style={s.rowDesc}>Who you are becoming — shown at 1000 karma</Text></View>
+              <View style={s.rowRight}><Text style={s.rowValue}>{goalName}</Text><Text style={s.rowArrow}>›</Text></View>
+            </TouchableOpacity>
+          ) : (
+            <View style={s.editRow}>
+              <TextInput style={s.textInput} value={tempGoal} onChangeText={setTempGoal} maxLength={30} autoFocus returnKeyType="done" onSubmitEditing={_saveGoalName} placeholderTextColor={colors.textPlaceholder} placeholder="e.g. Jitendriya" />
+              <TouchableOpacity style={s.saveBtn} onPress={_saveGoalName}><Text style={s.saveBtnText}>Save</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => setEditingGoal(false)}><Text style={s.cancelText}>Cancel</Text></TouchableOpacity>
+            </View>
+          )}
+          <View style={s.separator} />
+          {!editingTransform ? (
+            <TouchableOpacity style={s.row} onPress={() => { setTempTransform(transformSent); setEditingTransform(true); }}>
+              <View style={{ flex: 1 }}><Text style={s.rowLabel}>Transformation Sentence</Text><Text style={s.rowDesc} numberOfLines={2}>{transformSent}</Text></View>
+              <Text style={s.rowArrow}>›</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={{ padding: Spacing.lg, gap: Spacing.md }}>
+              <Text style={{ ...Typography.caption1, color: colors.textDim }}>Shown on the morning screen and 90-day transformation view.</Text>
+              <TextInput style={[s.textInput, { height: 70, textAlignVertical: 'top' }]} value={tempTransform} onChangeText={setTempTransform} maxLength={100} multiline autoFocus placeholderTextColor={colors.textPlaceholder} placeholder="e.g. Gagan is the open sky. Jitendriya is the sky that he chose." />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
+                <TouchableOpacity style={s.saveBtn} onPress={_saveTransformSentence}><Text style={s.saveBtnText}>Save</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => setEditingTransform(false)}><Text style={s.cancelText}>Cancel</Text></TouchableOpacity>
               </View>
             </View>
           )}

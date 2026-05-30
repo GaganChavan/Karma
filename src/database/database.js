@@ -441,7 +441,9 @@ const _seedDefaultSettings = async (db) => {
         days: [2,3,4,5,6,7,1],  // All days
       },
     ])],
-    ['morning_brief', ''],
+    ['morning_brief',            ''],
+    ['goal_name',                'Jitendriya'],
+    ['transformation_sentence',  'Gagan is the open sky. Jitendriya is the sky that he chose.'],
   ];
 
   for (const [key, value] of defaults) {

@@ -56,13 +56,16 @@ export const KARMA_TITLES = [
   { minScore: 1000, title: GOAL_NAME,       icon: '👑', color: '#FFD700' },
 ];
 
-export const getKarmaTitle = (karmaScore) => {
-  const score = Math.max(0, karmaScore || 0);
-  let current = KARMA_TITLES[0];
-  for (const t of KARMA_TITLES) {
+export const getKarmaTitle = (karmaScore, goalName = null) => {
+  const score  = Math.max(0, karmaScore || 0);
+  const titles = goalName
+    ? KARMA_TITLES.map(t => t.minScore === 1000 ? { ...t, title: goalName } : t)
+    : KARMA_TITLES;
+  let current = titles[0];
+  for (const t of titles) {
     if (score >= t.minScore) current = t;
   }
-  const next     = KARMA_TITLES.find(t => t.minScore > score) || null;
+  const next     = titles.find(t => t.minScore > score) || null;
   const progress = next
     ? (score - current.minScore) / (next.minScore - current.minScore)
     : 1;
@@ -525,16 +528,18 @@ export const checkAndAwardStreakFreeze = async () => {
 // ── FULL STATS ─────────────────────────────────────────────────────────
 export const getFullStats = async () => {
   try {
-    const [xpStr, karmaScore, freezeCount] = await Promise.all([
+    const [xpStr, karmaScore, freezeCount, goalName] = await Promise.all([
       getSetting('total_xp'),
       getKarmaScore(),
       getStreakFreezeCount(),
+      getSetting('goal_name'),
     ]);
     const totalXP    = parseInt(xpStr || '0');
     const levelInfo  = getLevelFromXP(totalXP);
-    const karmaTitle = getKarmaTitle(karmaScore);
+    const gn         = goalName || GOAL_NAME;
+    const karmaTitle = getKarmaTitle(karmaScore, gn);
     checkAndAwardJourneyBadges(karmaScore).catch(() => {});
-    return { totalXP, levelInfo, karmaScore, karmaTitle, freezeCount };
+    return { totalXP, levelInfo, karmaScore, karmaTitle, freezeCount, goalName: gn };
   } catch (e) {
     console.warn('getFullStats:', e.message);
     return {
