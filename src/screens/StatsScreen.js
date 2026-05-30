@@ -516,6 +516,76 @@ const StatsScreen = ({ navigation }) => {
               })}
             </View>
 
+            {/* ── Week-on-week comparison ── */}
+            {(data?.weeklyRates || []).length >= 2 && (() => {
+              const rates    = data.weeklyRates;
+              const thisWeek = rates[rates.length - 1] || 0;
+              const lastWeek = rates[rates.length - 2] || 0;
+              const diff     = thisWeek - lastWeek;
+              const arrow    = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
+              const phrase   = diff > 0 ? 'the rein tightened'
+                             : diff < 0 ? 'the rein loosened'
+                             : 'steady ground';
+              const clr      = diff > 0 ? colors.green : diff < 0 ? colors.red : colors.textDim;
+              return (
+                <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.md, borderWidth: 1, borderColor: colors.separator, padding: Spacing.md, marginBottom: Spacing.lg, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ ...Typography.caption1, color: colors.textMuted }}>
+                    {'This week '}
+                    <Text style={{ color: colors.gold, fontWeight: '700' }}>{thisWeek}%</Text>
+                    {'  ·  Last week '}
+                    <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>{lastWeek}%</Text>
+                  </Text>
+                  <Text style={{ ...Typography.caption1, color: clr, fontWeight: '700' }}>
+                    {arrow} {Math.abs(diff)}% — {phrase}
+                  </Text>
+                </View>
+              );
+            })()}
+
+            {/* ── Monthly summary ── */}
+            {(() => {
+              const now         = new Date();
+              const monthName   = now.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+              const monthStart  = DateUtils.toDateString(new Date(now.getFullYear(), now.getMonth(), 1));
+              const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+              const daysElapsed = now.getDate();
+              const habitCount  = data?.habits?.length || 0;
+              if (habitCount === 0) return null;
+              const monthPossible  = Math.max(1, habitCount * daysElapsed);
+              const monthRate      = Math.min(100, Math.round(((data?.monthDone || 0) / monthPossible) * 100));
+              const perfectDays    = (data?.heatmapData || []).filter(d => d.level === 'all' && d.date >= monthStart).length;
+              const rateColor      = monthRate >= 70 ? colors.green : monthRate >= 40 ? colors.gold : colors.red;
+              return (
+                <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.lg, marginBottom: Spacing.lg, gap: Spacing.md }}>
+                  <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2 }}>
+                    THIS MONTH — {monthName.toUpperCase()}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ alignItems: 'center', flex: 1 }}>
+                      <Text style={{ ...Typography.title2, color: rateColor, fontWeight: '700' }}>{monthRate}%</Text>
+                      <Text style={{ ...Typography.caption2, color: colors.textDim }}>completion</Text>
+                    </View>
+                    <View style={{ width: 1, height: 40, backgroundColor: colors.separator }} />
+                    <View style={{ alignItems: 'center', flex: 1 }}>
+                      <Text style={{ ...Typography.title2, color: colors.gold, fontWeight: '700' }}>{data?.monthDone || 0}</Text>
+                      <Text style={{ ...Typography.caption2, color: colors.textDim }}>habits done</Text>
+                    </View>
+                    <View style={{ width: 1, height: 40, backgroundColor: colors.separator }} />
+                    <View style={{ alignItems: 'center', flex: 1 }}>
+                      <Text style={{ ...Typography.title2, color: colors.green, fontWeight: '700' }}>{perfectDays}</Text>
+                      <Text style={{ ...Typography.caption2, color: colors.textDim }}>perfect days</Text>
+                    </View>
+                  </View>
+                  <View style={{ height: 5, backgroundColor: colors.backgroundElevated, borderRadius: Radius.full, overflow: 'hidden' }}>
+                    <View style={{ height: '100%', width: `${monthRate}%`, backgroundColor: rateColor, borderRadius: Radius.full }} />
+                  </View>
+                  <Text style={{ ...Typography.caption2, color: colors.textDim }}>
+                    Day {daysElapsed} of {daysInMonth} — {daysInMonth - daysElapsed} days remaining
+                  </Text>
+                </View>
+              );
+            })()}
+
             <OverviewHeatmap
               heatmapData={data?.heatmapData || []}
               appStartDate={data?.appStartDate || DateUtils.today()}

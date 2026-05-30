@@ -31,6 +31,8 @@ import {
 import { sendDailyWhatsApp, shouldShowDailyPrompt } from '../services/whatsappService';
 import { getTodayMood, shouldShowWeeklyReflection } from '../database/moodService';
 import { isWFOMode, applyWFOSkipsForToday, getActiveRecovery, offerStreakRecovery, progressRecovery } from '../services/wfoService';
+import { generateInsights } from '../services/insightsService';
+import { setSetting } from '../database/habitService';
 
 // ── SIP Category Definitions ──────────────────────────────────────────
 const CATEGORY_CONFIG = {
@@ -111,6 +113,7 @@ const HomeScreen = ({ navigation }) => {
   const [reorderMode,      setReorderMode]      = useState(false);
   const [reorderHabitList, setReorderHabitList] = useState([]);
   const [savingOrder,      setSavingOrder]      = useState(false);
+  const [todayInsight,     setTodayInsight]     = useState(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const shloka   = getGreetingShloka();
@@ -158,6 +161,14 @@ const HomeScreen = ({ navigation }) => {
       setWfoMode(wfo);
       setWfoCity(city || 'Bangalore');
       setShowWA(shouldShowDailyPrompt());
+
+      // Generate insights in background — save top one for morning brief
+      generateInsights().then(ins => {
+        if (ins && ins.length > 0) {
+          setTodayInsight(ins[0]);
+          setSetting('morning_brief', JSON.stringify({ title: ins[0].title, detail: ins[0].detail, icon: ins[0].icon })).catch(() => {});
+        }
+      }).catch(() => {});
 
       const hour = new Date().getHours();
       if ((hour >= 5 && hour < 10 && !todayMood.morning) ||
@@ -490,6 +501,32 @@ const HomeScreen = ({ navigation }) => {
               </Text>
             </TouchableOpacity>
           </View>
+        )}
+
+        {/* ── Today's Intelligence ── */}
+        {todayInsight && !reorderMode && (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => todayInsight.habitId
+              ? navigation.navigate('HabitDetail', { habitId: todayInsight.habitId })
+              : navigation.navigate('Stats')
+            }
+            style={{ marginHorizontal: Spacing.xl, marginBottom: Spacing.md, backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderLeftWidth: 4, borderColor: colors.separator, borderLeftColor: todayInsight.color || colors.gold, padding: Spacing.lg, gap: Spacing.xs }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+              <Text style={{ fontSize: 18 }}>{todayInsight.icon}</Text>
+              <Text style={{ ...Typography.caption2, color: todayInsight.color || colors.gold, letterSpacing: 1.5, fontWeight: '700', flex: 1 }}>
+                TODAY'S INTELLIGENCE
+              </Text>
+              <Text style={{ ...Typography.caption2, color: colors.textDim }}>›</Text>
+            </View>
+            <Text style={{ ...Typography.callout, color: colors.textPrimary, fontWeight: '600' }} numberOfLines={1}>
+              {todayInsight.title}
+            </Text>
+            <Text style={{ ...Typography.caption1, color: colors.textMuted, lineHeight: 17 }} numberOfLines={2}>
+              {todayInsight.detail}
+            </Text>
+          </TouchableOpacity>
         )}
 
         {/* ── WFO Banner ── */}

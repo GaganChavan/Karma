@@ -29,7 +29,10 @@ import {
   calculateCheckinXP, awardXP, getHabitXPTotal,
 } from '../services/gamificationService';
 import { getShloka, getMilestoneContext, getPunishContext } from '../constants/shlokas';
-import { logSlipTrigger, getTriggerPattern, TRIGGER_OPTIONS } from '../database/moodService';
+import {
+  logSlipTrigger, getTriggerPattern, getDeepSlipPattern, TRIGGER_OPTIONS,
+  logMissReason, getMissPattern, MISS_REASONS, SKIP_REASONS,
+} from '../database/moodService';
 import ShlokaDisplay from '../components/ShlokaDisplay';
 import { getDatabase }   from '../database/database';
 import { getActiveRecovery, offerStreakRecovery, progressRecovery } from '../services/wfoService';
@@ -251,6 +254,15 @@ const HabitDetailScreen = ({ navigation, route }) => {
   const [quantModal,     setQuantModal]      = useState(false);
   const [pendingSlips,   setPendingSlips]    = useState(0);
   const [quantInput,     setQuantInput]      = useState('');
+  const [deepLogModal,   setDeepLogModal]    = useState(false);
+  const [pendingTrigger, setPendingTrigger]  = useState(null);
+  const [deepPattern,    setDeepPattern]     = useState(null);
+  const [deepLog,        setDeepLog]         = useState({
+    timeOfDay: null, hoursSslept: null, missedAlarm: null, moodBefore: null,
+  });
+  const [missLogModal,   setMissLogModal]    = useState(false);
+  const [missLogStatus,  setMissLogStatus]   = useState('missed');
+  const [missPattern,    setMissPattern]     = useState(null);
 
   useFocusEffect(useCallback(() => {
     _loadData();
@@ -260,7 +272,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
   const _loadData = async () => {
     try {
       setLoading(true);
-      const [h, s, cs, weekData, ms, fc, tp, recovery, xp] = await Promise.all([
+      const [h, s, cs, weekData, ms, fc, tp, recovery, xp, dp, mp] = await Promise.all([
         getHabitById(habitId),
         getStreak(habitId),
         getCheckinsForHabit(habitId, 90),
@@ -269,7 +281,9 @@ const HabitDetailScreen = ({ navigation, route }) => {
         getStreakFreezeCount(),
         getTriggerPattern(habitId),
         getActiveRecovery(habitId),
-        getHabitXPTotal(habitId),           // Phase F-3
+        getHabitXPTotal(habitId),
+        getDeepSlipPattern(habitId),
+        getMissPattern(habitId),
       ]);
       const today  = DateUtils.today();
       const todayC = cs.find(c => c.date === today);
@@ -285,8 +299,10 @@ const HabitDetailScreen = ({ navigation, route }) => {
       setMilestones(ms);
       setFreezeCount(fc);
       setTriggerPattern(tp);
+      setDeepPattern(dp);
+      setMissPattern(mp);
       setActiveRecovery(recovery);
-      setHabitXP(xp || 0);                 // Phase F-3
+      setHabitXP(xp || 0);
       if (h.type === 'break') setPunishLevel(await getPunishmentLevel(habitId));
       if (h.frequency_type === 'weekly') {
         setWeekProgress(await _getWeekProgress(h, cs));
@@ -425,12 +441,58 @@ const HabitDetailScreen = ({ navigation, route }) => {
     setTriggerModal(false);
     try {
       await _doCheckIn('slip', pendingSlips);
-      await logSlipTrigger({ habitId, trigger: triggerKey });
-      const tp = await getTriggerPattern(habitId);
-      setTriggerPattern(tp);
+      setPendingTrigger(triggerKey);
+      setDeepLog({ timeOfDay: null, hoursSslept: null, missedAlarm: null, moodBefore: null });
+      setTimeout(() => setDeepLogModal(true), 350);
     } catch (err) {
       Alert.alert('Error', err.message);
     }
+  };
+
+  const _saveDeepLog = async () => {
+    setDeepLogModal(false);
+    try {
+      if (pendingTrigger) {
+        await logSlipTrigger({ habitId, trigger: pendingTrigger, ...deepLog });
+        const [tp, dp] = await Promise.all([getTriggerPattern(habitId), getDeepSlipPattern(habitId)]);
+        setTriggerPattern(tp);
+        setDeepPattern(dp);
+        setPendingTrigger(null);
+      }
+    } catch (err) { console.warn('Deep log save:', err.message); }
+  };
+
+  const _skipDeepLog = async () => {
+    setDeepLogModal(false);
+    try {
+      if (pendingTrigger) {
+        await logSlipTrigger({ habitId, trigger: pendingTrigger });
+        const tp = await getTriggerPattern(habitId);
+        setTriggerPattern(tp);
+        setPendingTrigger(null);
+      }
+    } catch (err) { console.warn('Skip deep log:', err.message); }
+  };
+
+  const _handleMissed = async () => {
+    await _doCheckIn('missed');
+    setMissLogStatus('missed');
+    setTimeout(() => setMissLogModal(true), 350);
+  };
+
+  const _handleSkipped = async () => {
+    await _doCheckIn('skipped');
+    setMissLogStatus('skipped');
+    setTimeout(() => setMissLogModal(true), 350);
+  };
+
+  const _onMissReasonSelected = async (reasonKey) => {
+    setMissLogModal(false);
+    try {
+      await logMissReason({ habitId, status: missLogStatus, reason: reasonKey });
+      const mp = await getMissPattern(habitId);
+      setMissPattern(mp);
+    } catch (err) { console.warn('Miss reason:', err.message); }
   };
 
   const _useFreeze = async () => {
@@ -640,9 +702,9 @@ const HabitDetailScreen = ({ navigation, route }) => {
           </View>
         )}
 
-        {/* Trigger pattern */}
+        {/* Trigger pattern + deep intelligence */}
         {habit.type === 'break' && triggerPattern && triggerPattern.totalSlips >= 3 && (
-          <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.goldAlpha25, padding: Spacing.lg, gap: Spacing.sm, marginBottom: Spacing.lg }}>
+          <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.goldAlpha25, padding: Spacing.lg, gap: Spacing.md, marginBottom: Spacing.lg }}>
             <Text style={{ ...Typography.caption2, color: colors.gold, letterSpacing: 2, fontWeight: '700' }}>🧠 BATTLEFIELD INTELLIGENCE</Text>
             <Text style={{ ...Typography.subheadline, color: colors.textPrimary }}>
               {triggerPattern.topInfo?.icon} <Text style={{ fontWeight: '700', color: colors.gold }}>{triggerPattern.topInfo?.label}</Text> triggers {triggerPattern.percentage}% of your slips
@@ -650,6 +712,54 @@ const HabitDetailScreen = ({ navigation, route }) => {
             <Text style={{ ...Typography.caption1, color: colors.textDim, lineHeight: 18 }}>
               Based on {triggerPattern.totalSlips} logged slips. Plan for this specific state.
             </Text>
+            {deepPattern && deepPattern.totalDeepLogs >= 3 && (
+              <View style={{ borderTopWidth: 1, borderTopColor: colors.separator, paddingTop: Spacing.md, gap: Spacing.sm }}>
+                <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 1.5 }}>PATTERN — LAST 30 DAYS</Text>
+                {deepPattern.topTime && (
+                  <Text style={{ ...Typography.caption1, color: colors.textMuted, lineHeight: 18 }}>
+                    🕐 Most slips happen in the <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>{deepPattern.topTime}</Text>
+                  </Text>
+                )}
+                {deepPattern.topMood && (
+                  <Text style={{ ...Typography.caption1, color: colors.textMuted, lineHeight: 18 }}>
+                    😶 Most common mood before: <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>{deepPattern.topMood}</Text>
+                  </Text>
+                )}
+                {deepPattern.lowSleepPct !== null && (
+                  <Text style={{ ...Typography.caption1, color: deepPattern.lowSleepPct >= 60 ? colors.red : colors.textMuted, lineHeight: 18 }}>
+                    😴 <Text style={{ fontWeight: '600' }}>{deepPattern.lowSleepPct}%</Text> of slips followed low sleep (≤6h)
+                  </Text>
+                )}
+                {deepPattern.alarmPct !== null && deepPattern.alarmPct >= 40 && (
+                  <Text style={{ ...Typography.caption1, color: colors.red, lineHeight: 18 }}>
+                    ⏰ Missed morning alarm in <Text style={{ fontWeight: '600' }}>{deepPattern.alarmPct}%</Text> of slip days
+                  </Text>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Miss pattern — build habits */}
+        {habit.type === 'build' && missPattern && (missPattern.missTop || missPattern.skipTop) && (
+          <View style={{ backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, padding: Spacing.lg, gap: Spacing.sm, marginBottom: Spacing.lg }}>
+            <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 2, fontWeight: '700' }}>📊 MISS PATTERN — LAST 30 DAYS</Text>
+            {missPattern.missTop && (
+              <Text style={{ ...Typography.caption1, color: colors.textMuted, lineHeight: 18 }}>
+                ✗ Most missed because: <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>
+                  {MISS_REASONS.find(r => r.key === missPattern.missTop.key)?.icon} {MISS_REASONS.find(r => r.key === missPattern.missTop.key)?.label}
+                </Text>
+                {' '}({missPattern.missTop.pct}% of {missPattern.missTop.total} misses)
+              </Text>
+            )}
+            {missPattern.skipTop && (
+              <Text style={{ ...Typography.caption1, color: colors.textMuted, lineHeight: 18 }}>
+                ⏭ Most skipped because: <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>
+                  {SKIP_REASONS.find(r => r.key === missPattern.skipTop.key)?.icon} {SKIP_REASONS.find(r => r.key === missPattern.skipTop.key)?.label}
+                </Text>
+                {' '}({missPattern.skipTop.pct}% of {missPattern.skipTop.total} skips)
+              </Text>
+            )}
           </View>
         )}
 
@@ -750,19 +860,19 @@ const HabitDetailScreen = ({ navigation, route }) => {
               <View style={{ flex: 1 }}>
                 <TouchableOpacity
                   style={{ borderRadius: Radius.lg, borderWidth: 1, paddingVertical: 12, alignItems: 'center', borderColor: isSkipped ? colors.gold : colors.separator, backgroundColor: isSkipped ? colors.goldAlpha15 : colors.backgroundCard }}
-                  onPress={() => _doCheckIn('skipped')}
+                  onPress={_handleSkipped}
                   disabled={saving}
                 >
                   <Text style={{ ...Typography.subheadline, fontWeight: '600', color: isSkipped ? colors.gold : colors.textMuted }}>
                     ⏭ {isSkipped ? 'Skipped ✓' : 'Skip'}
                   </Text>
                 </TouchableOpacity>
-                <Text style={{ fontSize: 9, color: colors.textDim, textAlign: 'center', marginTop: 3 }}>Streak protected · –1 XP</Text>
+                <Text style={{ fontSize: 9, color: colors.textDim, textAlign: 'center', marginTop: 3 }}>Streak protected · 0 XP</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <TouchableOpacity
                   style={{ borderRadius: Radius.lg, borderWidth: 1, paddingVertical: 12, alignItems: 'center', borderColor: isMissed ? colors.red : colors.separator, backgroundColor: isMissed ? colors.redAlpha15 : colors.backgroundCard }}
-                  onPress={() => _doCheckIn('missed')}
+                  onPress={_handleMissed}
                   disabled={saving}
                 >
                   <Text style={{ ...Typography.subheadline, fontWeight: '600', color: isMissed ? colors.red : colors.textMuted }}>
@@ -809,7 +919,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
               <View style={{ flex: 1 }}>
                 <TouchableOpacity
                   style={{ borderRadius: Radius.lg, borderWidth: 1, paddingVertical: 14, alignItems: 'center', borderColor: isSkipped ? colors.gold : colors.separator, backgroundColor: isSkipped ? colors.goldAlpha15 : colors.backgroundCard }}
-                  onPress={() => _doCheckIn('skipped')}
+                  onPress={_handleSkipped}
                   disabled={saving}
                 >
                   <Text style={{ ...Typography.subheadline, fontWeight: '600', color: isSkipped ? colors.gold : colors.textMuted }}>
@@ -817,13 +927,13 @@ const HabitDetailScreen = ({ navigation, route }) => {
                   </Text>
                 </TouchableOpacity>
                 <Text style={{ fontSize: 9, color: colors.textDim, textAlign: 'center', marginTop: 4 }}>
-                  Streak protected · –1 XP
+                  Streak protected · 0 XP
                 </Text>
               </View>
               <View style={{ flex: 1 }}>
                 <TouchableOpacity
                   style={{ borderRadius: Radius.lg, borderWidth: 1, paddingVertical: 14, alignItems: 'center', borderColor: isMissed ? colors.red : colors.separator, backgroundColor: isMissed ? colors.redAlpha15 : colors.backgroundCard }}
-                  onPress={() => _doCheckIn('missed')}
+                  onPress={_handleMissed}
                   disabled={saving}
                 >
                   <Text style={{ ...Typography.subheadline, fontWeight: '600', color: isMissed ? colors.red : colors.textMuted }}>
@@ -1131,6 +1241,151 @@ const HabitDetailScreen = ({ navigation, route }) => {
           </View>
         </View>
       </Modal>
+
+      {/* ── Deep Slip Log Modal (optional) ── */}
+      <Modal visible={deepLogModal} transparent animationType="slide" onRequestClose={_skipDeepLog}>
+        <View style={{ flex: 1, backgroundColor: colors.overlay90, justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.backgroundCard, borderTopLeftRadius: Radius.xxl, borderTopRightRadius: Radius.xxl, padding: Spacing.xl, paddingBottom: 44, gap: Spacing.lg }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.separator, alignSelf: 'center' }} />
+
+            {/* Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm }}>
+              <Text style={{ ...Typography.title3, color: colors.textPrimary }}>Log what led here?</Text>
+              <View style={{ backgroundColor: colors.backgroundElevated, borderRadius: Radius.full, paddingHorizontal: 8, paddingVertical: 3 }}>
+                <Text style={{ ...Typography.caption2, color: colors.textDim }}>OPTIONAL</Text>
+              </View>
+            </View>
+            <Text style={{ ...Typography.caption1, color: colors.textDim, textAlign: 'center', lineHeight: 18 }}>
+              After 3–4 weeks this reveals your exact pattern. 20 seconds now, clarity later.
+            </Text>
+
+            {/* When did it happen */}
+            <View style={{ gap: Spacing.sm }}>
+              <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 1.5 }}>WHEN DID IT HAPPEN?</Text>
+              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                {['Morning','Afternoon','Evening','Late Night'].map(t => (
+                  <TouchableOpacity
+                    key={t}
+                    onPress={() => setDeepLog(p => ({ ...p, timeOfDay: p.timeOfDay === t ? null : t }))}
+                    style={{ flex: 1, paddingVertical: Spacing.sm, borderRadius: Radius.md, borderWidth: 1.5,
+                      borderColor: deepLog.timeOfDay === t ? colors.gold : colors.separator,
+                      backgroundColor: deepLog.timeOfDay === t ? colors.goldAlpha15 : colors.backgroundElevated,
+                      alignItems: 'center' }}
+                  >
+                    <Text style={{ ...Typography.caption2, color: deepLog.timeOfDay === t ? colors.gold : colors.textDim, fontWeight: '600', textAlign: 'center' }}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Hours slept */}
+            <View style={{ gap: Spacing.sm }}>
+              <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 1.5 }}>HOURS SLEPT LAST NIGHT?</Text>
+              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                {['<4','5','6','7','8+'].map(h => (
+                  <TouchableOpacity
+                    key={h}
+                    onPress={() => setDeepLog(p => ({ ...p, hoursSslept: p.hoursSslept === h ? null : h }))}
+                    style={{ flex: 1, paddingVertical: Spacing.md, borderRadius: Radius.md, borderWidth: 1.5,
+                      borderColor: deepLog.hoursSslept === h ? colors.blue : colors.separator,
+                      backgroundColor: deepLog.hoursSslept === h ? colors.blueAlpha15 : colors.backgroundElevated,
+                      alignItems: 'center' }}
+                  >
+                    <Text style={{ ...Typography.callout, color: deepLog.hoursSslept === h ? colors.blue : colors.textDim, fontWeight: '700' }}>{h}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Missed alarm */}
+            <View style={{ gap: Spacing.sm }}>
+              <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 1.5 }}>MISSED MORNING ALARM?</Text>
+              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                {[{ label: 'Yes', val: true }, { label: 'No', val: false }].map(opt => (
+                  <TouchableOpacity
+                    key={opt.label}
+                    onPress={() => setDeepLog(p => ({ ...p, missedAlarm: p.missedAlarm === opt.val ? null : opt.val }))}
+                    style={{ flex: 1, paddingVertical: Spacing.md, borderRadius: Radius.md, borderWidth: 1.5,
+                      borderColor: deepLog.missedAlarm === opt.val ? colors.red : colors.separator,
+                      backgroundColor: deepLog.missedAlarm === opt.val ? colors.redAlpha15 : colors.backgroundElevated,
+                      alignItems: 'center' }}
+                  >
+                    <Text style={{ ...Typography.callout, color: deepLog.missedAlarm === opt.val ? colors.red : colors.textDim, fontWeight: '700' }}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Mood before */}
+            <View style={{ gap: Spacing.sm }}>
+              <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 1.5 }}>MOOD BEFORE?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
+                {[
+                  { key: 'Guilty',   icon: '😓' },
+                  { key: 'Anxious',  icon: '😰' },
+                  { key: 'Empty',    icon: '😶' },
+                  { key: 'Bored',    icon: '😑' },
+                  { key: 'Stressed', icon: '😤' },
+                ].map(m => (
+                  <TouchableOpacity
+                    key={m.key}
+                    onPress={() => setDeepLog(p => ({ ...p, moodBefore: p.moodBefore === m.key ? null : m.key }))}
+                    style={{ paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderRadius: Radius.full, borderWidth: 1.5,
+                      borderColor: deepLog.moodBefore === m.key ? colors.red : colors.separator,
+                      backgroundColor: deepLog.moodBefore === m.key ? colors.redAlpha15 : colors.backgroundElevated,
+                      flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                  >
+                    <Text style={{ fontSize: 16 }}>{m.icon}</Text>
+                    <Text style={{ ...Typography.callout, color: deepLog.moodBefore === m.key ? colors.red : colors.textDim, fontWeight: '600' }}>{m.key}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Actions */}
+            <TouchableOpacity
+              style={{ backgroundColor: colors.gold, borderRadius: Radius.lg, paddingVertical: Spacing.lg, alignItems: 'center' }}
+              onPress={_saveDeepLog}
+            >
+              <Text style={{ ...Typography.headline, color: '#000' }}>Save Log</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={{ alignItems: 'center', paddingVertical: Spacing.sm }} onPress={_skipDeepLog}>
+              <Text style={{ ...Typography.callout, color: colors.textDim }}>Skip — log without detail</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Miss / Skip Reason Modal (build habits) ── */}
+      <Modal visible={missLogModal} transparent animationType="slide" onRequestClose={() => setMissLogModal(false)}>
+        <View style={{ flex: 1, backgroundColor: colors.overlay90, justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.backgroundCard, borderTopLeftRadius: Radius.xxl, borderTopRightRadius: Radius.xxl, padding: Spacing.xl, paddingBottom: 44, gap: Spacing.lg }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.separator, alignSelf: 'center' }} />
+            <Text style={{ ...Typography.title3, color: colors.textPrimary, textAlign: 'center' }}>
+              {missLogStatus === 'missed' ? "You didn't show up. Why?" : 'Why are you skipping?'}
+            </Text>
+            <Text style={{ ...Typography.caption1, color: colors.textDim, textAlign: 'center' }}>
+              Tap one — saved instantly. Patterns appear after a few weeks.
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, justifyContent: 'center' }}>
+              {(missLogStatus === 'missed' ? MISS_REASONS : SKIP_REASONS).map(r => (
+                <TouchableOpacity
+                  key={r.key}
+                  onPress={() => _onMissReasonSelected(r.key)}
+                  style={{ paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, borderRadius: Radius.full, borderWidth: 1, borderColor: colors.separator, backgroundColor: colors.backgroundElevated, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                >
+                  <Text style={{ fontSize: 18 }}>{r.icon}</Text>
+                  <Text style={{ ...Typography.callout, color: colors.textPrimary, fontWeight: '600' }}>{r.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity style={{ alignItems: 'center', paddingVertical: Spacing.sm }} onPress={() => setMissLogModal(false)}>
+              <Text style={{ ...Typography.callout, color: colors.textDim }}>Skip — log without reason</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 };

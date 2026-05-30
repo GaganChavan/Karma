@@ -14,12 +14,14 @@ import { Colors, Typography, Spacing, Radius } from '../constants/colors';
 import { getDailyIdentityShloka, SHLOKAS } from '../constants/shlokas';
 import { getSetting }            from '../database/habitService';
 import { DEFAULT_NAME, DEFAULT_DECLARATION, TRANSFORMATION_SENTENCE } from '../constants/appConfig';
+import { getSetting } from '../database/habitService';
 import ShlokaDisplay             from '../components/ShlokaDisplay';
 
 const { height } = Dimensions.get('window');
 const IdentityScreen = ({ onDismiss }) => {
   const [identityStatement, setIdentityStatement] = useState(DEFAULT_DECLARATION);
   const [alterEgo,          setAlterEgo]          = useState(DEFAULT_NAME);
+  const [morningBrief,      setMorningBrief]      = useState(null);
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
@@ -33,12 +35,16 @@ const IdentityScreen = ({ onDismiss }) => {
 
   const _loadIdentity = async () => {
     try {
-      const [saved, ego] = await Promise.all([
+      const [saved, ego, brief] = await Promise.all([
         getSetting('identity_statement'),
         getSetting('alter_ego'),
+        getSetting('morning_brief'),
       ]);
       if (saved && saved.trim().length > 0) setIdentityStatement(saved);
       if (ego  && ego.trim().length  > 0)  setAlterEgo(ego);
+      if (brief) {
+        try { setMorningBrief(JSON.parse(brief)); } catch {}
+      }
     } catch {}
   };
 
@@ -95,6 +101,12 @@ const IdentityScreen = ({ onDismiss }) => {
             <Text style={styles.identityLabel}>YOUR DECLARATION, {alterEgo.toUpperCase()}</Text>
             <Text style={styles.identityText}>"{identityStatement}"</Text>
             <Text style={styles.transformationHint}>{TRANSFORMATION_SENTENCE}</Text>
+            {morningBrief && (
+              <View style={styles.briefCard}>
+                <Text style={styles.briefIcon}>{morningBrief.icon}</Text>
+                <Text style={styles.briefText} numberOfLines={2}>{morningBrief.title}</Text>
+              </View>
+            )}
           </View>
 
           {/* Chariot framework — compact */}
@@ -186,6 +198,26 @@ const styles = StyleSheet.create({
     opacity:       0.7,
     marginTop:     4,
     fontStyle:     'italic',
+  },
+  briefCard: {
+    flexDirection:   'row',
+    alignItems:      'center',
+    gap:             8,
+    marginTop:       Spacing.sm,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius:    Radius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical:   Spacing.sm,
+    borderWidth:     1,
+    borderColor:     'rgba(255,255,255,0.1)',
+  },
+  briefIcon: { fontSize: 14 },
+  briefText: {
+    ...Typography.caption1,
+    color:     Colors.textMuted,
+    flex:      1,
+    lineHeight: 16,
+    fontStyle: 'italic',
   },
 
   // Chariot card

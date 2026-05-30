@@ -144,11 +144,22 @@ const _initializeTables = async (db) => {
       FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS miss_logs (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      habit_id   INTEGER NOT NULL,
+      date       TEXT NOT NULL,
+      status     TEXT NOT NULL CHECK(status IN ('missed','skipped')),
+      reason     TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_checkins_habit_date ON checkins(habit_id, date);
     CREATE INDEX IF NOT EXISTS idx_checkins_date       ON checkins(date);
     CREATE INDEX IF NOT EXISTS idx_slip_triggers_habit ON slip_triggers(habit_id);
     CREATE INDEX IF NOT EXISTS idx_mood_logs_date      ON mood_logs(date);
     CREATE INDEX IF NOT EXISTS idx_checkins_status     ON checkins(status);
+    CREATE INDEX IF NOT EXISTS idx_miss_logs_habit     ON miss_logs(habit_id);
   `);
 };
 
@@ -231,6 +242,19 @@ const _runMigrations = async (db) => {
       );
     } catch {}
 
+    // Phase G-1: deep slip log columns
+    const stCols = (await db.getAllAsync('PRAGMA table_info(slip_triggers)')).map(c => c.name);
+    const addSTCol = async (col, def) => {
+      if (!stCols.includes(col)) {
+        await db.execAsync(`ALTER TABLE slip_triggers ADD COLUMN ${col} ${def}`);
+        console.log(`✅ Migration: slip_triggers.${col}`);
+      }
+    };
+    await addSTCol('time_of_day',  'TEXT DEFAULT NULL');
+    await addSTCol('hours_slept',  'TEXT DEFAULT NULL');
+    await addSTCol('missed_alarm', 'INTEGER DEFAULT NULL');
+    await addSTCol('mood_before',  'TEXT DEFAULT NULL');
+
   } catch (err) {
     console.warn('Migration warning:', err.message);
   }
@@ -238,7 +262,7 @@ const _runMigrations = async (db) => {
 
 // ── XP v2 Recalculation ──────────────────────────────────────────────
 // Wipes old xp_log, recalculates everything at new rates:
-// done=+1, resisted=+2, missed=-2, slip=-5, skipped=-1(non-WFO), auto_skipped=-2
+// done=+1, resisted=+2, missed=-2, slip=-5, skipped=0, auto_skipped=-2
 // milestone XP at new values
 // XP can go negative — no floor
 const _backfillXPv2 = async (db) => {
@@ -292,7 +316,7 @@ const _backfillXPv2 = async (db) => {
       for (const c of checkins) {
         let xp = 0;
         if (c.status === 'skipped') {
-          // WFO-managed skips = 0 XP, user-intentional skips = -1
+          // WFO-managed skips = 0 XP, user-intentional skips = 0 XP
           xp = (c.note && c.note.includes('WFO')) ? 0 : NEW_XP.skipped;
         } else {
           xp = NEW_XP[c.status] || 0;
@@ -372,7 +396,7 @@ const _seedDefaultSettings = async (db) => {
     ['recovery_mode_shown',  ''],
     // Phase F-1 guards
     ['xp_backfill_done',     'true'],  // skip old backfill — v2 handles it
-    ['xp_v2_done',           'false'],
+    ['xp_v2_done',           'false'],  // will recalculate on first launch
     ['sip_migration_done',   'true'],
     // Phase F-4: notification configs (JSON array of notification objects)
     ['notification_configs', JSON.stringify([
@@ -408,7 +432,16 @@ const _seedDefaultSettings = async (db) => {
         message: 'Sunday. Time to reflect, Gagan. How was your week?',
         days: [1],  // Sunday only (1 = Sunday in Expo format)
       },
+      {
+        id: 'pattern_warning',
+        name: 'Evening Pattern Warning',
+        enabled: true,
+        time: '19:00',
+        message: 'Evening. This is when most people give in. You have data on your side. Check your patterns.',
+        days: [2,3,4,5,6,7,1],  // All days
+      },
     ])],
+    ['morning_brief', ''],
   ];
 
   for (const [key, value] of defaults) {

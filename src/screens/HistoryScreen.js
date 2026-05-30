@@ -43,25 +43,16 @@ const getStatusColor = (status, colors) => {
 };
 
 // XP hint for edit dialog
+// XP values mirroring XP_VALUES in gamificationService
+const _STATUS_XP = { done: 1, resisted: 2, missed: -2, slip: -5, skipped: 0, auto_skipped: -2 };
+
 const _getXPHint = (oldStatus, newStatus) => {
-  const wasAutoSkip = oldStatus === 'auto_skipped';
-  const wasDone     = oldStatus === 'done';
-  const wasResisted = oldStatus === 'resisted';
-  if (wasAutoSkip) {
-    if (newStatus === 'done')     return '  +13 XP  (refund penalty + done bonus)';
-    if (newStatus === 'resisted') return '  +18 XP  (refund penalty + resisted bonus)';
-    if (newStatus === 'missed' || newStatus === 'skipped') return '  +3 XP  (penalty refunded)';
-  }
-  if ((wasDone || wasResisted) && newStatus !== 'done' && newStatus !== 'resisted') {
-    return wasDone ? '  -10 XP  (done reversed)' : '  -15 XP  (resisted reversed)';
-  }
-  if (!wasDone && !wasResisted && oldStatus !== 'auto_skipped') {
-    if (newStatus === 'done')     return '  +10 XP';
-    if (newStatus === 'resisted') return '  +15 XP';
-  }
-  if (wasDone && newStatus === 'resisted') return '  +5 XP';
-  if (wasResisted && newStatus === 'done') return '  -5 XP';
-  return '';
+  if (!oldStatus || !newStatus || oldStatus === newStatus) return '';
+  const delta = (_STATUS_XP[newStatus] ?? 0) - (_STATUS_XP[oldStatus] ?? 0);
+  if (delta === 0) return '';
+  const sign = delta > 0 ? '+' : '';
+  const note = oldStatus === 'auto_skipped' && delta > 0 ? ' (auto-skip penalty refunded)' : '';
+  return `  ${sign}${delta} XP${note}`;
 };
 
 const HistoryScreen = ({ navigation }) => {
