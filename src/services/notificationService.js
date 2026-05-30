@@ -53,7 +53,7 @@ export const DEFAULT_NOTIFICATION_CONFIGS = [
     name:    'Morning Intention',
     enabled: true,
     time:    '06:30',
-    message: 'The battlefield is ready, Gagan. Your dharma awaits.',
+    message: 'A new day. A new vote for who you are becoming. Show up.',
     days:    [2, 3, 4, 5, 6, 7, 1],  // All 7 days
   },
   {
@@ -61,7 +61,7 @@ export const DEFAULT_NOTIFICATION_CONFIGS = [
     name:    'Evening Log Reminder',
     enabled: true,
     time:    '21:00',
-    message: 'Log your habits before midnight. The chariot waits.',
+    message: 'Before you sleep — log today. Honesty tonight builds discipline tomorrow.',
     days:    [2, 3, 4, 5, 6],  // Mon–Fri default
   },
   {
@@ -69,7 +69,7 @@ export const DEFAULT_NOTIFICATION_CONFIGS = [
     name:    'Streak Protection',
     enabled: true,
     time:    '21:30',
-    message: 'Your streak is at risk tonight. One tap. That is all.',
+    message: "Don't let today break the chain. 60 seconds to log. Do it now.",
     days:    [2, 3, 4, 5, 6, 7, 1],  // All 7 days
   },
   {
@@ -77,8 +77,16 @@ export const DEFAULT_NOTIFICATION_CONFIGS = [
     name:    'Sunday Reflection',
     enabled: true,
     time:    '20:00',
-    message: 'Sunday. Time to reflect, Gagan. How was your week?',
+    message: 'The week is done. Before you close it — what did it teach you?',
     days:    [1],  // Sunday only
+  },
+  {
+    id:      'pattern_warning',
+    name:    'Evening Pattern Warning',
+    enabled: true,
+    time:    '19:00',
+    message: 'Evening. This is when discipline breaks for most people. Your patterns know this. Stay sharp.',
+    days:    [2, 3, 4, 5, 6, 7, 1],  // All 7 days
   },
 ];
 

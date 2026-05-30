@@ -38,6 +38,7 @@ const NOTIFICATION_ICONS = {
   evening_log:       '🌙',
   streak_protection: '🔥',
   sunday_reflection: '📖',
+  pattern_warning:   '⚡',
   custom:            '🔔',
 };
 
@@ -268,7 +269,7 @@ const NotificationSettingsScreen = ({ navigation }) => {
   const _resetDefaults = () => {
     Alert.alert(
       'Reset to Defaults',
-      'This will restore all 4 default notifications and remove any custom ones.',
+      'This will restore all 5 default notifications and remove any custom ones.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Reset', style: 'destructive', onPress: () => {
