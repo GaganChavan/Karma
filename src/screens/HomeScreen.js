@@ -441,6 +441,32 @@ const HomeScreen = ({ navigation }) => {
   // ── Karma Title (Phase F-1) ────────────────────────────────────────
   const kt = gamStats?.karmaTitle;
 
+  // ── Today's Plan (Day Planner) ────────────────────────────────────
+  const _fmtTime = (m) => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? ` ${m % 60}m` : ''}` : `${m}m`;
+  const _planBlocks = [
+    { key: 'morning',   icon: '🌅', label: 'Morning' },
+    { key: 'afternoon', icon: '☀️', label: 'Afternoon' },
+    { key: 'evening',   icon: '🌙', label: 'Evening' },
+    { key: 'anytime',   icon: '☸',  label: 'Anytime' },
+  ];
+  let _planTotal = 0, _planDone = 0;
+  const _planBlockData = {};
+  for (const h of habits) {
+    const dur = h.duration || 0;
+    if (!dur) continue;
+    const key = h.time_of_day || 'anytime';
+    if (!_planBlockData[key]) _planBlockData[key] = { total: 0, done: 0, count: 0, doneCount: 0 };
+    _planBlockData[key].total += dur;
+    _planBlockData[key].count += 1;
+    _planTotal += dur;
+    const isDone = checkins[h.id]?.status === 'done' || checkins[h.id]?.status === 'resisted';
+    if (isDone) { _planBlockData[key].done += dur; _planBlockData[key].doneCount += 1; _planDone += dur; }
+  }
+  const _planRemain   = _planTotal - _planDone;
+  const _planProgress = _planTotal > 0 ? _planDone / _planTotal : 0;
+  const _planActive   = _planBlocks.filter(b => _planBlockData[b.key]?.total > 0);
+  const _showPlan     = _planTotal > 0 && !reorderMode;
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <StatusBar barStyle="light-content" />
@@ -628,6 +654,43 @@ const HomeScreen = ({ navigation }) => {
             </View>
 
           </View>
+        )}
+
+        {/* ── Today's Plan ── */}
+        {_showPlan && (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Schedule')}
+            style={{ marginHorizontal: Spacing.xl, marginBottom: Spacing.md, backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, overflow: 'hidden' }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.sm }}>
+              <Text style={{ ...Typography.caption2, color: colors.textDim, letterSpacing: 1.5, fontWeight: '700' }}>TODAY'S PLAN</Text>
+              <Text style={{ ...Typography.caption1, fontWeight: '600', color: _planRemain === 0 ? colors.green : colors.gold }}>
+                ⏱ {_planRemain === 0 ? 'All done' : `${_fmtTime(_planRemain)} left`}
+              </Text>
+            </View>
+            <View style={{ marginHorizontal: Spacing.lg, height: 4, backgroundColor: colors.separator, borderRadius: Radius.full, overflow: 'hidden', marginBottom: Spacing.md }}>
+              <View style={{ height: '100%', width: `${Math.round(_planProgress * 100)}%`, backgroundColor: _planProgress === 1 ? colors.green : colors.gold, borderRadius: Radius.full }} />
+            </View>
+            <View style={{ paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, gap: 8 }}>
+              {_planActive.map(b => {
+                const bd = _planBlockData[b.key];
+                const bp = bd.total > 0 ? bd.done / bd.total : 0;
+                return (
+                  <View key={b.key} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                    <Text style={{ fontSize: 13, width: 18 }}>{b.icon}</Text>
+                    <Text style={{ ...Typography.caption1, color: colors.textMuted, width: 66 }}>{b.label}</Text>
+                    <View style={{ flex: 1, height: 3, backgroundColor: colors.separator, borderRadius: Radius.full, overflow: 'hidden' }}>
+                      <View style={{ height: '100%', width: `${Math.round(bp * 100)}%`, backgroundColor: bp === 1 ? colors.green : colors.gold, borderRadius: Radius.full }} />
+                    </View>
+                    <Text style={{ ...Typography.caption2, color: bd.doneCount === bd.count ? colors.green : colors.textDim, minWidth: 52, textAlign: 'right' }}>
+                      {bd.doneCount}/{bd.count} · {_fmtTime(bd.total - bd.done)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </TouchableOpacity>
         )}
 
         {/* ── Prompts ── */}

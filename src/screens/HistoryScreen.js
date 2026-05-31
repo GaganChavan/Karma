@@ -13,6 +13,7 @@ import { SafeAreaView }   from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme, Typography, Spacing, Radius } from '../constants/colors';
 import { DateUtils }      from '../utils/dateUtils';
+import { APP_BIRTH }      from '../constants/appConfig';
 import {
   getAllHabits, editPastCheckin,
 } from '../database/habitService';
@@ -73,7 +74,7 @@ const HistoryScreen = ({ navigation }) => {
       setError(null);
       const db     = await getDatabase();
       const habits = await getAllHabits();
-      const days   = DateUtils.getLastNDays(30).reverse();
+      const days   = DateUtils.getLastNDays(30).reverse().filter(d => d >= APP_BIRTH);
       const fromDate = days[days.length - 1];
 
       const checkins = await db.getAllAsync(

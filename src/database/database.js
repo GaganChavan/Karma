@@ -189,6 +189,9 @@ const _runMigrations = async (db) => {
     // Phase F-1: SIP category
     await addHabitCol('category',      "TEXT DEFAULT NULL");
 
+    // Day Planner: estimated duration per habit (minutes)
+    await addHabitCol('duration',      "INTEGER NOT NULL DEFAULT 15");
+
     // Checkins value column
     const cCols = (await db.getAllAsync("PRAGMA table_info(checkins)")).map(c => c.name);
     if (!cCols.includes('value')) {

@@ -23,6 +23,7 @@ import NeuralProgressScreen      from '../screens/NeuralProgressScreen';
 import BeforeNowScreen           from '../screens/BeforeNowScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';  // Phase F-4
 import KnowKarmaScreen            from '../screens/KnowKarmaScreen';
+import ScheduleScreen             from '../screens/ScheduleScreen';
 
 const Tab   = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -116,6 +117,9 @@ const AppNavigator = () => (
 
     {/* Phase F-5 */}
     <Stack.Screen name="KnowKarma" component={KnowKarmaScreen} />
+
+    {/* Plugins */}
+    <Stack.Screen name="Schedule" component={ScheduleScreen} />
   </Stack.Navigator>
 );
 

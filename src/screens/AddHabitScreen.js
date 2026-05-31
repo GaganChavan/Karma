@@ -49,6 +49,7 @@ const defaultForm = {
   reminder_type:         'none',
   goal_days:             '',
   punishment_sensitivity:'balanced',
+  duration:              15,
 };
 
 const AddHabitScreen = ({ navigation, route }) => {
@@ -88,6 +89,7 @@ const AddHabitScreen = ({ navigation, route }) => {
         reminder_type:         h.reminder_type,
         goal_days:             h.goal_days ? String(h.goal_days) : '',
         punishment_sensitivity:h.punishment_sensitivity,
+        duration:              h.duration || 15,
       });
       setSelDays(new Set(h.days.split(',')));
     } catch (err) {
@@ -467,6 +469,36 @@ const AddHabitScreen = ({ navigation, route }) => {
                 </TouchableOpacity>
               </View>
             ))}
+          </View>
+
+          {/* ── Duration ── */}
+          <Text style={[styles.groupLabel, { color: colors.textDim }]}>ESTIMATED DURATION</Text>
+          <View style={[styles.group, { backgroundColor: colors.backgroundCard, borderColor: colors.separator }]}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: Spacing.md }}>
+              {[5, 10, 15, 20, 30, 45, 60, 90].map(mins => {
+                const label = mins >= 60 ? `${mins / 60}h` : `${mins}m`;
+                const sel   = form.duration === mins;
+                return (
+                  <TouchableOpacity
+                    key={mins}
+                    style={{
+                      paddingHorizontal: 14, paddingVertical: 8,
+                      borderRadius: Radius.md, borderWidth: 1,
+                      backgroundColor: sel ? colors.goldAlpha15 : colors.backgroundElevated,
+                      borderColor:     sel ? colors.goldAlpha40  : colors.separator,
+                    }}
+                    onPress={() => _set('duration', mins)}
+                  >
+                    <Text style={{ ...Typography.callout, fontWeight: '700', color: sel ? colors.gold : colors.textMuted }}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ ...Typography.caption2, color: colors.textDim, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md }}>
+              Used in Today's Plan to estimate if all habits fit in your day
+            </Text>
           </View>
 
           {/* ── Appearance ── */}

@@ -48,11 +48,11 @@ export const XP_VALUES = {
 // ── KARMA TITLES (based on Karma Score 0–1000) ─────────────────────────
 export const KARMA_TITLES = [
   { minScore:    0, title: 'Seeker',       icon: '🌱', color: '#8E8E93' },
-  { minScore:  100, title: 'Awakening',    icon: '🔥', color: '#FF9F0A' },
-  { minScore:  200, title: 'Consistent',   icon: '⭐', color: '#30D158' },
-  { minScore:  400, title: 'Disciplined',  icon: '⚔️', color: '#0A84FF' },
-  { minScore:  600, title: 'Unstoppable',  icon: '⚡', color: '#BF5AF2' },
-  { minScore:  800, title: 'Transcendent', icon: '🔱', color: '#FFD700' },
+  { minScore:  300, title: 'Awakening',    icon: '🔥', color: '#FF9F0A' },
+  { minScore:  500, title: 'Consistent',   icon: '⭐', color: '#30D158' },
+  { minScore:  650, title: 'Disciplined',  icon: '⚔️', color: '#0A84FF' },
+  { minScore:  800, title: 'Unstoppable',  icon: '⚡', color: '#BF5AF2' },
+  { minScore:  930, title: 'Transcendent', icon: '🔱', color: '#FFD700' },
   { minScore: 1000, title: GOAL_NAME,       icon: '👑', color: '#FFD700' },
 ];
 
@@ -334,9 +334,9 @@ export const JOURNEY_BADGES = [
   { id: 'ten_battles',      badge: '🗡️', title: 'Ten Battles',      desc: 'Ten acts of discipline. The path becomes visible.',     criteria: '10 total habit completions' },
   { id: 'century',          badge: '💯', title: 'The Century',       desc: '100 acts of pure discipline. Most never get here.',    criteria: '100 total habit completions' },
   { id: 'all_in_day',       badge: '🎯', title: 'All-In Day',        desc: 'Every battle won in a single day.',                    criteria: 'Complete a perfect day — all habits done' },
-  { id: 'karma_200',        badge: '🔆', title: 'First Flame',       desc: 'Karma Score crossed 200. The fire is real.',           criteria: 'Reach Karma Score 200+' },
-  { id: 'karma_400',        badge: '🛡️', title: 'The Shield',        desc: 'Karma Score 400+. Discipline is becoming defence.',    criteria: 'Reach Karma Score 400+' },
-  { id: 'karma_600',        badge: '🌊', title: 'The Current',       desc: 'Karma Score 600+. You move like water now.',           criteria: 'Reach Karma Score 600+' },
+  { id: 'karma_200',        badge: '🔆', title: 'First Flame',       desc: 'Karma Score crossed 300. The fire is real.',           criteria: 'Reach Karma Score 300+' },
+  { id: 'karma_400',        badge: '🛡️', title: 'The Shield',        desc: 'Karma Score 500+. Discipline is becoming defence.',    criteria: 'Reach Karma Score 500+' },
+  { id: 'karma_600',        badge: '🌊', title: 'The Current',       desc: 'Karma Score 650+. You move like water now.',           criteria: 'Reach Karma Score 650+' },
   { id: 'karma_800',        badge: '🏔️', title: 'The Mountain',      desc: 'Karma Score 800+. Immovable. Unshakeable.',            criteria: 'Reach Karma Score 800+' },
   { id: 'the_yogi',         badge: '🧘', title: 'The Yogi',          desc: 'All your habits aligned. Every horse in formation.',   criteria: 'All active habits have a current streak' },
   { id: 'legend',           badge: '🌟', title: 'Legend',            desc: 'You have become what most only dream of being.',       criteria: 'Reach Karma Score 1000' },
@@ -430,9 +430,9 @@ export const checkAndAwardJourneyBadges = async (currentKarmaScore = null) => {
 
     const score = currentKarmaScore !== null ? currentKarmaScore : await getKarmaScore();
     for (const sc of [
-      { id: 'karma_200', threshold: 200 },
-      { id: 'karma_400', threshold: 400 },
-      { id: 'karma_600', threshold: 600 },
+      { id: 'karma_200', threshold: 300 },
+      { id: 'karma_400', threshold: 500 },
+      { id: 'karma_600', threshold: 650 },
       { id: 'karma_800', threshold: 800 },
       { id: 'legend',    threshold: 1000 },
     ]) {

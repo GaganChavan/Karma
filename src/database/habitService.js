@@ -85,9 +85,9 @@ export const createHabit = async (habit) => {
         is_wfo_skip,
         reminder_time, reminder_type,
         goal_days, punishment_sensitivity,
-        category,
+        category, duration,
         sort_order, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         habit.name.trim(),
         habit.icon   || '⭐',
@@ -107,6 +107,7 @@ export const createHabit = async (habit) => {
         habit.goal_days      || 0,
         habit.punishment_sensitivity || 'balanced',
         habit.category       || null,
+        parseInt(habit.duration)     || 15,
         count?.count         || 0,
         now, now,
       ]
@@ -149,6 +150,7 @@ export const updateHabit = async (id, updates) => {
         reminder_type      = COALESCE(?, reminder_type),
         goal_days          = COALESCE(?, goal_days),
         punishment_sensitivity = COALESCE(?, punishment_sensitivity),
+        duration           = COALESCE(?, duration),
         updated_at         = datetime('now','localtime')
       WHERE id = ? AND is_active = 1`,
       [
@@ -165,6 +167,7 @@ export const updateHabit = async (id, updates) => {
         updates.reminder_type     || null,
         updates.goal_days         ?? null,
         updates.punishment_sensitivity || null,
+        updates.duration          ?? null,
         id,
       ]
     );

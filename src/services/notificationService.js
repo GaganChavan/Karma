@@ -268,46 +268,62 @@ export const scheduleHabitNotification = async (habit) => {
 
 // ── Hard Alarm via Android Intent ────────────────────────────────────
 const _scheduleHardAlarm = async (habit, hour, minute) => {
+  if (Platform.OS !== 'android') {
+    console.warn('Hard alarms only supported on Android');
+    return;
+  }
+
+  const _tryIntent = async (withDays) => {
+    const extra = {
+      'android.intent.extra.alarm.HOUR':    hour,
+      'android.intent.extra.alarm.MINUTES': minute,
+      'android.intent.extra.alarm.MESSAGE': `Karma — ${habit.name}`,
+      'android.intent.extra.alarm.SKIP_UI': false,
+      'android.intent.extra.alarm.VIBRATE': true,
+    };
+    if (withDays) extra['android.intent.extra.alarm.DAYS'] = _getDaysArray(habit.days);
+    await IntentLauncher.startActivityAsync('android.intent.action.SET_ALARM', { extra });
+  };
+
+  // Level 1: try with repeat days
   try {
-    if (Platform.OS !== 'android') {
-      console.warn('Hard alarms only supported on Android');
-      return;
-    }
-    await IntentLauncher.startActivityAsync(
-      'android.intent.action.SET_ALARM',
-      {
-        extra: {
-          'android.intent.extra.alarm.HOUR':    hour,
-          'android.intent.extra.alarm.MINUTES': minute,
-          'android.intent.extra.alarm.MESSAGE': `Karma — ${habit.name}`,
-          'android.intent.extra.alarm.SKIP_UI': false,
-          'android.intent.extra.alarm.VIBRATE': true,
-          'android.intent.extra.alarm.DAYS':    _getDaysArray(habit.days),
-        },
-      }
-    );
+    await _tryIntent(true);
     Alert.alert(
       '⏰ Alarm Created',
-      `A real alarm has been set for "${habit.name}" at ${habit.reminder_time}.\n\nIt will ring even when your phone is on silent.`,
+      `System alarm set for "${habit.name}" at ${habit.reminder_time}. It will ring even on silent.`,
       [{ text: 'Got It' }]
     );
+    return;
+  } catch {}
+
+  // Level 2: some clock apps reject the DAYS extra — try without it
+  try {
+    await _tryIntent(false);
+    Alert.alert(
+      '⏰ Alarm Created',
+      `System alarm set for "${habit.name}" at ${habit.reminder_time}.\n\nNote: repeat days couldn't be pre-set — please confirm days in your Clock app.`,
+      [{ text: 'Got It' }]
+    );
+    return;
   } catch (error) {
     console.error('_scheduleHardAlarm error:', error);
-    const notifId = await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `⏰ Karma — ${habit.name}`,
-        body:  _getNotificationBody(habit),
-        data:  { habitId: habit.id, type: 'habit_reminder' },
-        sound: true,
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DAILY,
-        hour, minute, repeats: true,
-      },
-    });
-    Alert.alert('⚠️ Alarm Fallback', `Couldn't create a system alarm. A notification reminder has been set instead for ${habit.reminder_time}.`, [{ text: 'OK' }]);
-    return notifId;
   }
+
+  // Level 3: full fallback to notification
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: `⏰ Karma — ${habit.name}`,
+      body:  _getNotificationBody(habit),
+      data:  { habitId: habit.id, type: 'habit_reminder' },
+      sound: true,
+    },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute, repeats: true },
+  });
+  Alert.alert(
+    '⚠️ Alarm Fallback',
+    `Your phone's Clock app couldn't be reached.\nA notification reminder has been set for ${habit.reminder_time} instead.`,
+    [{ text: 'OK' }]
+  );
 };
 
 // ── Cancel a Habit's Notification ────────────────────────────────────

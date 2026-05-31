@@ -1,7 +1,7 @@
 // ─── KARMA APP — CENTRAL CONFIG ──────────────────────────────────────
 // Single source of truth. Change here, changes everywhere.
 
-export const APP_BIRTH    = '2026-05-30';
+export const APP_BIRTH    = '2026-06-01';
 export const DEFAULT_NAME = 'Gagan';
 export const GOAL_NAME    = 'Jitendriya';
 
