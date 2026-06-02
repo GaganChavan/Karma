@@ -547,7 +547,7 @@ const HabitDetailScreen = ({ navigation, route }) => {
     const ago30       = new Date();
     ago30.setDate(today30.getDate() - 29);
     const ago30Str = `${ago30.getFullYear()}-${String(ago30.getMonth()+1).padStart(2,'0')}-${String(ago30.getDate()).padStart(2,'0')}`;
-    const habitBirth  = (habit.created_at || ago30Str).split('T')[0];
+    const habitBirth  = (habit.created_at || ago30Str).substring(0, 10);
     const effectiveStart = habitBirth > ago30Str ? habitBirth : ago30Str;
 
     const done30 = checkins.filter(c =>

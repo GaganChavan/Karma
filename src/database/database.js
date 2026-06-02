@@ -258,6 +258,72 @@ const _runMigrations = async (db) => {
     await addSTCol('missed_alarm', 'INTEGER DEFAULT NULL');
     await addSTCol('mood_before',  'TEXT DEFAULT NULL');
 
+    // ── Pre-birth data cleanup (runs once) ───────────────────────────
+    // Detects checkins dated before APP_BIRTH ('2026-06-01') — these are
+    // leaked data from Android Auto Backup restoring an old database.
+    // Purges stale rows and forces XP recalculation so the user starts clean.
+    // Guard key prevents re-running on subsequent launches.
+    try {
+      const cleanupGuard = await db.getFirstAsync(
+        "SELECT value FROM settings WHERE key='pre_birth_cleanup_done'"
+      );
+      if (cleanupGuard?.value !== 'true') {
+        const staleRow = await db.getFirstAsync(
+          "SELECT id FROM checkins WHERE date < '2026-06-01' LIMIT 1"
+        );
+        if (staleRow) {
+          // Remove all pre-birth performance data
+          await db.runAsync("DELETE FROM checkins         WHERE date        < '2026-06-01'");
+          await db.runAsync("DELETE FROM milestones       WHERE achieved_at < '2026-06-01'");
+          await db.runAsync("DELETE FROM journey_milestones WHERE achieved_at < '2026-06-01'");
+          // Reset XP recalculation guard so _backfillXPv2 rebuilds from clean data
+          await db.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES ('xp_v2_done', 'false')");
+          console.log('✅ Pre-birth cleanup: stale data removed, XP will recalculate');
+        }
+        await db.runAsync(
+          "INSERT OR REPLACE INTO settings (key, value) VALUES ('pre_birth_cleanup_done', 'true')"
+        );
+      }
+    } catch (cleanupErr) {
+      console.warn('Pre-birth cleanup:', cleanupErr.message);
+    }
+
+    // ── Karma badge time-gate reset (runs once) ──────────────────────
+    // Removes journey badges that were awarded before their minimum-day
+    // threshold existed. They'll be re-earned naturally over time.
+    // substr(achieved_at, 1, 10) handles both 'YYYY-MM-DD' and datetime formats.
+    try {
+      const badgeResetGuard = await db.getFirstAsync(
+        "SELECT value FROM settings WHERE key='karma_badge_reset_done'"
+      );
+      if (badgeResetGuard?.value !== 'true') {
+        const timedBadges = [
+          { id: 'karma_200', minDays:  7 },
+          { id: 'karma_400', minDays: 14 },
+          { id: 'karma_600', minDays: 21 },
+          { id: 'karma_800', minDays: 30 },
+          { id: 'legend',    minDays: 90 },
+        ];
+        for (const rule of timedBadges) {
+          const cutoff = new Date('2026-06-01T00:00:00');
+          cutoff.setDate(cutoff.getDate() + rule.minDays);
+          const y = cutoff.getFullYear();
+          const m = String(cutoff.getMonth() + 1).padStart(2, '0');
+          const d = String(cutoff.getDate()).padStart(2, '0');
+          await db.runAsync(
+            "DELETE FROM journey_milestones WHERE badge_id = ? AND substr(achieved_at, 1, 10) < ?",
+            [rule.id, `${y}-${m}-${d}`]
+          );
+        }
+        await db.runAsync(
+          "INSERT OR REPLACE INTO settings (key, value) VALUES ('karma_badge_reset_done', 'true')"
+        );
+        console.log('✅ Karma badge time-gate reset: premature badges cleared');
+      }
+    } catch (badgeErr) {
+      console.warn('Karma badge reset:', badgeErr.message);
+    }
+
   } catch (err) {
     console.warn('Migration warning:', err.message);
   }

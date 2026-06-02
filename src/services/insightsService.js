@@ -40,7 +40,7 @@ export const generateInsights = async () => {
       ) || [];
 
       // FIXED: denominator = expected days since habit was created (or window start)
-      const habitBirth    = (habit.created_at || APP_BIRTH).split('T')[0];
+      const habitBirth    = (habit.created_at || APP_BIRTH).substring(0, 10);
       const effectiveStart = habitBirth > fromDate ? habitBirth : fromDate;
       const startD         = new Date(effectiveStart + 'T00:00:00');
       const expectedDays   = Math.floor((today - startD) / 86400000) + 1;
@@ -465,7 +465,7 @@ const _analyzeOverall = async (habits, db, fromDate, today) => {
   let bestRate  = 0;
 
   for (const h of habits.filter(h => h.type === 'build')) {
-    const habitBirth    = (h.created_at || fromDate).split('T')[0];
+    const habitBirth    = (h.created_at || fromDate).substring(0, 10);
     const effectiveStart = habitBirth > fromDate ? habitBirth : fromDate;
     const startD         = new Date(effectiveStart + 'T00:00:00');
     const expectedDays   = Math.floor((today - startD) / 86400000) + 1;

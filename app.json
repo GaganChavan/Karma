@@ -22,6 +22,7 @@
         "backgroundColor": "#000000"
       },
       "package": "com.gaganchavan.karma",
+      "allowBackup": false,
       "softwareKeyboardLayoutMode": "pan",
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",

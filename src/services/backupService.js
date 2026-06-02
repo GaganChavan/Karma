@@ -1,9 +1,10 @@
 // ─── KARMA APP — BACKUP SERVICE (FIXED) ──────────────────────────────
 // FIXES:
-// 1. _restoreData: habits INSERT now includes is_paused + category
+// 1. _restoreData: habits INSERT now includes is_paused + category + duration
 // 2. _restoreData: journey_milestones now restored
 // 3. _restoreData: xp_log now restored (was exported but never restored)
-// 4. clearAllData: also clears journey_milestones + sip_migration_done reset
+// 4. clearAllData: clears all tables + resets all migration guards
+// 5. _restoreData: force-resets migration guards after restore so cleanup re-runs
 
 import * as FileSystem    from 'expo-file-system/legacy';
 import * as Sharing       from 'expo-sharing';
@@ -11,6 +12,14 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Alert }          from 'react-native';
 import { getDatabase }    from '../database/database';
 import { exportAllData }  from '../database/habitService';
+
+// IST-safe datetime fallback — matches SQLite datetime('now','localtime') format
+const _localDatetime = () => {
+  const d  = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const y = d.getFullYear(), m = d.getMonth() + 1, dd = d.getDate();
+  return `${y}-${pad(m)}-${pad(dd)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
 
 // ── EXPORT ────────────────────────────────────────────────────────────
 export const exportData = async () => {
@@ -70,7 +79,7 @@ export const importData = async () => {
         `• ${data.habits?.length || 0} habits\n` +
         `• ${data.checkins?.length || 0} check-ins\n` +
         `• ${data.journeyMilestones?.length || 0} journey badges\n` +
-        `• Exported: ${data.exported_at?.split('T')[0] || 'unknown'}\n\n` +
+        `• Exported: ${data.exported_at?.substring(0, 10) || 'unknown'}\n\n` +
         `This cannot be undone.`,
         [
           { text: 'Cancel', style: 'cancel', onPress: () => resolve({ success: false, message: 'Cancelled' }) },
@@ -113,9 +122,9 @@ const _restoreData = async (data) => {
           frequency_type, weekly_target, is_wfo_skip,
           reminder_time, reminder_type,
           goal_days, punishment_sensitivity, streak_freeze_count,
-          is_active, is_paused, category,
+          is_active, is_paused, category, duration,
           sort_order, created_at, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           h.id,
           h.name,
@@ -137,11 +146,12 @@ const _restoreData = async (data) => {
           h.punishment_sensitivity || 'balanced',
           h.streak_freeze_count || 0,
           h.is_active          ?? 1,
-          h.is_paused          || 0,      // FIX: was missing
-          h.category           || null,   // FIX: was missing
+          h.is_paused          || 0,
+          h.category           || null,
+          h.duration           || 15,
           h.sort_order         || 0,
-          h.created_at         || new Date().toISOString(),
-          h.updated_at         || new Date().toISOString(),
+          h.created_at         || _localDatetime(),
+          h.updated_at         || _localDatetime(),
         ]
       );
     }
@@ -162,7 +172,7 @@ const _restoreData = async (data) => {
           c.note       || null,
           c.slip_count || 0,
           c.value      || null,
-          c.created_at || new Date().toISOString(),
+          c.created_at || _localDatetime(),
         ]
       );
     }
@@ -173,7 +183,7 @@ const _restoreData = async (data) => {
     for (const m of data.milestones) {
       await db.runAsync(
         'INSERT OR IGNORE INTO milestones (id, habit_id, milestone_days, achieved_at) VALUES (?,?,?,?)',
-        [m.id, m.habit_id, m.milestone_days, m.achieved_at || new Date().toISOString()]
+        [m.id, m.habit_id, m.milestone_days, m.achieved_at || _localDatetime()]
       );
     }
   }
@@ -184,7 +194,7 @@ const _restoreData = async (data) => {
     for (const jm of data.journeyMilestones) {
       await db.runAsync(
         'INSERT OR IGNORE INTO journey_milestones (badge_id, achieved_at) VALUES (?, ?)',
-        [jm.badge_id, jm.achieved_at || new Date().toISOString()]
+        [jm.badge_id, jm.achieved_at || _localDatetime()]
       );
     }
   }
@@ -212,6 +222,12 @@ const _restoreData = async (data) => {
     }
   }
 
+  // Force-reset migration guards so cleanup migrations re-run on restored data.
+  // Restored backup may include stale pre-birth data or prematurely earned badges.
+  // xp_v2_done is intentionally NOT reset — xp_log is restored directly from backup.
+  await db.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES ('pre_birth_cleanup_done', 'false')");
+  await db.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES ('karma_badge_reset_done', 'false')");
+
   console.log('✅ Data restored — habits, checkins, milestones, badges, XP log');
 };
 
@@ -224,6 +240,11 @@ export const clearAllData = async () => {
     DELETE FROM milestones;
     DELETE FROM xp_log;
     DELETE FROM journey_milestones;
+    DELETE FROM mood_logs;
+    DELETE FROM slip_triggers;
+    DELETE FROM miss_logs;
+    DELETE FROM weekly_reflections;
+    DELETE FROM streak_recovery;
     UPDATE settings SET value = '0'     WHERE key = 'total_xp';
     UPDATE settings SET value = ''      WHERE key = 'last_perfect_day';
     UPDATE settings SET value = '0'     WHERE key = 'streak_freeze_count';
@@ -232,6 +253,8 @@ export const clearAllData = async () => {
     UPDATE settings SET value = ''      WHERE key = 'wfo_start_date';
     UPDATE settings SET value = ''      WHERE key = 'wfo_end_date';
     UPDATE settings SET value = 'false' WHERE key = 'xp_v2_done';
+    UPDATE settings SET value = 'false' WHERE key = 'pre_birth_cleanup_done';
+    UPDATE settings SET value = 'false' WHERE key = 'karma_badge_reset_done';
     UPDATE settings SET value = 'true'  WHERE key = 'sip_migration_done';
     UPDATE settings SET value = ''      WHERE key = 'morning_brief';
   `);

@@ -17,7 +17,7 @@ export const DateUtils = {
   today: () => _localDate(new Date()),
 
   toDateString: (date) => {
-    if (typeof date === 'string') return date.split('T')[0];
+    if (typeof date === 'string') return date.substring(0, 10);
     return _localDate(date);
   },
 

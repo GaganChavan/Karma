@@ -20,6 +20,13 @@ const _localDate = (d) => {
 };
 const _today = () => _localDate(new Date());
 
+// Days elapsed since APP_BIRTH (0 on birth day, 1 the day after, etc.)
+// Used to time-gate karma titles and karma journey badges.
+const _daysSinceBirth = () => {
+  const birth = new Date(APP_BIRTH + 'T00:00:00');
+  return Math.max(0, Math.floor((new Date() - birth) / 86400000));
+};
+
 // ── XP VALUES ─────────────────────────────────────────────────────────
 export const XP_VALUES = {
   habit_done:        1,
@@ -45,31 +52,57 @@ export const XP_VALUES = {
   milestone_365:   100,
 };
 
-// ── KARMA TITLES (based on Karma Score 0–1000) ─────────────────────────
+// ── KARMA TITLES (based on Karma Score 0–1000 AND days since APP_BIRTH) ──
+// Both minScore AND minDays must be met to unlock a title.
+// This prevents day-1 shortcuts — Jitendriya requires 90 days of proven discipline.
 export const KARMA_TITLES = [
-  { minScore:    0, title: 'Seeker',       icon: '🌱', color: '#8E8E93' },
-  { minScore:  300, title: 'Awakening',    icon: '🔥', color: '#FF9F0A' },
-  { minScore:  500, title: 'Consistent',   icon: '⭐', color: '#30D158' },
-  { minScore:  650, title: 'Disciplined',  icon: '⚔️', color: '#0A84FF' },
-  { minScore:  800, title: 'Unstoppable',  icon: '⚡', color: '#BF5AF2' },
-  { minScore:  930, title: 'Transcendent', icon: '🔱', color: '#FFD700' },
-  { minScore: 1000, title: GOAL_NAME,       icon: '👑', color: '#FFD700' },
+  { minScore:    0, minDays:  0, title: 'Seeker',       icon: '🌱', color: '#8E8E93' },
+  { minScore:  300, minDays:  7, title: 'Awakening',    icon: '🔥', color: '#FF9F0A' },
+  { minScore:  500, minDays: 14, title: 'Consistent',   icon: '⭐', color: '#30D158' },
+  { minScore:  650, minDays: 21, title: 'Disciplined',  icon: '⚔️', color: '#0A84FF' },
+  { minScore:  800, minDays: 30, title: 'Unstoppable',  icon: '⚡', color: '#BF5AF2' },
+  { minScore:  930, minDays: 60, title: 'Transcendent', icon: '🔱', color: '#FFD700' },
+  { minScore: 1000, minDays: 90, title: GOAL_NAME,       icon: '👑', color: '#FFD700' },
 ];
 
-export const getKarmaTitle = (karmaScore, goalName = null) => {
+// daysSinceBirth: pass explicitly for efficiency when already computed, or omit to auto-calculate.
+export const getKarmaTitle = (karmaScore, goalName = null, daysSinceBirth = null) => {
   const score  = Math.max(0, karmaScore || 0);
+  const days   = daysSinceBirth !== null ? daysSinceBirth : _daysSinceBirth();
   const titles = goalName
     ? KARMA_TITLES.map(t => t.minScore === 1000 ? { ...t, title: goalName } : t)
     : KARMA_TITLES;
-  let current = titles[0];
-  for (const t of titles) {
-    if (score >= t.minScore) current = t;
+
+  // Current: highest title where BOTH score AND day requirements are met
+  let currentIdx = 0;
+  for (let i = 0; i < titles.length; i++) {
+    if (score >= titles[i].minScore && days >= titles[i].minDays) currentIdx = i;
   }
-  const next     = titles.find(t => t.minScore > score) || null;
-  const progress = next
-    ? (score - current.minScore) / (next.minScore - current.minScore)
-    : 1;
-  return { ...current, nextTitle: next, progress: Math.min(1, Math.max(0, progress)), score };
+  const current = titles[currentIdx];
+
+  // Next: the step immediately above current (may be gated by score, days, or both)
+  const next = currentIdx < titles.length - 1 ? titles[currentIdx + 1] : null;
+
+  // Progress: bottleneck of score progress and days progress toward next title
+  let progress = 1;
+  if (next) {
+    const scoreRange = next.minScore - current.minScore;
+    const daysRange  = next.minDays  - current.minDays;
+    const scoreP = scoreRange > 0 ? Math.min(1, (score - current.minScore) / scoreRange) : 1;
+    const daysP  = daysRange  > 0 ? Math.min(1, (days  - current.minDays)  / daysRange)  : 1;
+    progress = Math.min(scoreP, daysP);
+  }
+
+  // daysToNextTitle: how many more days until the time-gate lifts (0 = already past)
+  const daysToNextTitle = next ? Math.max(0, next.minDays - days) : 0;
+
+  return {
+    ...current,
+    nextTitle: next,
+    progress: Math.min(1, Math.max(0, progress)),
+    score,
+    daysToNextTitle,
+  };
 };
 
 // ── LEGACY LEVELS (secondary, XP-based) ───────────────────────────────
@@ -278,7 +311,7 @@ export const getKarmaScore = async () => {
     let totalDone     = 0;
 
     for (const habit of habits) {
-      const habitBirth = (habit.created_at || APP_BIRTH).split('T')[0];
+      const habitBirth = (habit.created_at || APP_BIRTH).substring(0, 10);
       const start      = habitBirth > effectiveWindowStart ? habitBirth : effectiveWindowStart;
       const startD     = new Date(start    + 'T00:00:00');
       const endD       = new Date(todayStr + 'T00:00:00');
@@ -353,7 +386,7 @@ export const getEarnedJourneyBadges = async () => {
 // DATE FIX: award() now accepts achievedAt so badges reflect the real event date,
 //           not the date checkAndAwardJourneyBadges happened to run.
 //           correctDate() self-heals already-inserted records with wrong timestamps.
-export const checkAndAwardJourneyBadges = async (currentKarmaScore = null) => {
+export const checkAndAwardJourneyBadges = async (currentKarmaScore = null, daysSinceBirth = null) => {
   try {
     const db        = await getDatabase();
     const earned    = await db.getAllAsync('SELECT badge_id FROM journey_milestones') || [];
@@ -429,14 +462,16 @@ export const checkAndAwardJourneyBadges = async (currentKarmaScore = null) => {
     }
 
     const score = currentKarmaScore !== null ? currentKarmaScore : await getKarmaScore();
+    const days  = daysSinceBirth !== null ? daysSinceBirth : _daysSinceBirth();
+    // minDays mirrors the KARMA_TITLES time-gates — score alone is not enough
     for (const sc of [
-      { id: 'karma_200', threshold: 300 },
-      { id: 'karma_400', threshold: 500 },
-      { id: 'karma_600', threshold: 650 },
-      { id: 'karma_800', threshold: 800 },
-      { id: 'legend',    threshold: 1000 },
+      { id: 'karma_200', threshold: 300,  minDays:  7 },
+      { id: 'karma_400', threshold: 500,  minDays: 14 },
+      { id: 'karma_600', threshold: 650,  minDays: 21 },
+      { id: 'karma_800', threshold: 800,  minDays: 30 },
+      { id: 'legend',    threshold: 1000, minDays: 90 },
     ]) {
-      if (!earnedIds.has(sc.id) && score >= sc.threshold) {
+      if (!earnedIds.has(sc.id) && score >= sc.threshold && days >= sc.minDays) {
         await award(JOURNEY_BADGES.find(b => b.id === sc.id));
       }
     }
@@ -534,20 +569,23 @@ export const getFullStats = async () => {
       getStreakFreezeCount(),
       getSetting('goal_name'),
     ]);
+    const daysSinceBirth = _daysSinceBirth();
     const totalXP    = parseInt(xpStr || '0');
     const levelInfo  = getLevelFromXP(totalXP);
     const gn         = goalName || GOAL_NAME;
-    const karmaTitle = getKarmaTitle(karmaScore, gn);
-    checkAndAwardJourneyBadges(karmaScore).catch(() => {});
-    return { totalXP, levelInfo, karmaScore, karmaTitle, freezeCount, goalName: gn };
+    const karmaTitle = getKarmaTitle(karmaScore, gn, daysSinceBirth);
+    checkAndAwardJourneyBadges(karmaScore, daysSinceBirth).catch(() => {});
+    return { totalXP, levelInfo, karmaScore, karmaTitle, freezeCount, goalName: gn, daysSinceBirth };
   } catch (e) {
     console.warn('getFullStats:', e.message);
+    const daysSinceBirth = _daysSinceBirth();
     return {
       totalXP:    0,
       levelInfo:  getLevelFromXP(0),
       karmaScore: 0,
-      karmaTitle: getKarmaTitle(0),
+      karmaTitle: getKarmaTitle(0, null, daysSinceBirth),
       freezeCount: 0,
+      daysSinceBirth,
     };
   }
 };

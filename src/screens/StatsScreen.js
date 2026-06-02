@@ -267,7 +267,7 @@ const StatsScreen = ({ navigation }) => {
           [h.id]
         );
 
-        const habitBirth     = (h.created_at || APP_BIRTH).split('T')[0];
+        const habitBirth     = (h.created_at || APP_BIRTH).substring(0, 10);
         const effectiveStart = habitBirth > APP_BIRTH ? habitBirth : APP_BIRTH;
         const startD         = new Date(effectiveStart + 'T00:00:00');
         const daysSince      = Math.floor((today - startD) / 86400000) + 1;
@@ -437,7 +437,10 @@ const StatsScreen = ({ navigation }) => {
                       <View style={{ height: '100%', width: `${Math.round(kt.progress * 100)}%`, backgroundColor: kt.color, borderRadius: Radius.full }} />
                     </View>
                     <Text style={{ ...Typography.caption2, color: colors.textDim, textAlign: 'right' }}>
-                      {Math.round(kt.progress * 100)}% → {kt.nextTitle.icon} {kt.nextTitle.title} (Score {kt.nextTitle.minScore}+)
+                      {Math.round(kt.progress * 100)}%{' '}
+                      {kt.daysToNextTitle > 0
+                        ? `→ ${kt.nextTitle.icon} ${kt.nextTitle.title} · ${kt.daysToNextTitle}d to unlock (Day ${kt.nextTitle.minDays}+ & Score ${kt.nextTitle.minScore}+)`
+                        : `→ ${kt.nextTitle.icon} ${kt.nextTitle.title} (Score ${kt.nextTitle.minScore}+)`}
                     </Text>
                   </View>
                 )}

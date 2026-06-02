@@ -20,8 +20,18 @@ const _localDate = (d) => {
 
 const getTodayDate  = () => _localDate(new Date());
 
+// IST-safe datetime string: 'YYYY-MM-DD HH:MM:SS' — matches SQLite datetime('now','localtime').
+// new Date().toISOString() returns UTC, which is wrong in IST before 05:30.
+const _localDatetime = () => {
+  const d  = new Date();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${_localDate(d)} ${hh}:${mm}:${ss}`;
+};
+
 const getDateString = (date) => {
-  if (typeof date === 'string') return date.split('T')[0];
+  if (typeof date === 'string') return date.substring(0, 10);
   return _localDate(date);
 };
 
@@ -74,7 +84,7 @@ export const createHabit = async (habit) => {
     if (existing) throw new Error(`A habit named "${habit.name.trim()}" already exists`);
 
     const count  = await db.getFirstAsync('SELECT COUNT(*) as count FROM habits WHERE is_active = 1');
-    const now    = new Date().toISOString();
+    const now    = _localDatetime();
 
     const result = await db.runAsync(
       `INSERT INTO habits (
@@ -611,7 +621,7 @@ export const exportAllData = async () => {
       db.getAllAsync('SELECT * FROM journey_milestones'),
     ]);
     return {
-      version: 3, exported_at: new Date().toISOString(),
+      version: 3, exported_at: _localDatetime(),
       habits, checkins, settings, milestones, xpLog, journeyMilestones,
     };
   } catch (error) { throw new Error(`Export failed: ${error.message}`); }

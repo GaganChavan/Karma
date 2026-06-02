@@ -26,6 +26,7 @@ import {
   insertAutoSkipCheckin,
 } from './src/database/habitService';
 import { deductAutoSkipXP }         from './src/services/gamificationService';
+import { APP_BIRTH }                from './src/constants/appConfig';
 
 configureNotifications();
 
@@ -67,6 +68,10 @@ const _wasScheduledOn = (habit, dateStr) => {
 const runAutoSkip = async () => {
   try {
     const yesterday = _getYesterdayStr();
+
+    // Never penalize for days before the app existed
+    if (yesterday < APP_BIRTH) return { skippedCount: 0, skippedNames: [] };
+
     const habits    = await getHabitsForAutoSkip();
     let skippedCount = 0;
     const skippedNames = [];
@@ -74,6 +79,11 @@ const runAutoSkip = async () => {
     for (const habit of habits) {
       if (!_wasScheduledOn(habit, yesterday)) continue;
       if (habit.is_wfo_skip === 1) continue;
+
+      // Never penalize for days before this habit was created
+      const habitBorn = (habit.created_at || APP_BIRTH).substring(0, 10);
+      if (yesterday < habitBorn) continue;
+
       const existing = await getCheckinForDate(habit.id, yesterday);
       if (existing) continue;
       await insertAutoSkipCheckin(habit.id, yesterday);
