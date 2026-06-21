@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView,
+  View, Text, TextInput, TouchableOpacity, Pressable, ScrollView,
   StyleSheet, StatusBar, Alert, Animated, Modal, FlatList, Switch,
 } from 'react-native';
 import { SafeAreaView }  from 'react-native-safe-area-context';
@@ -260,9 +260,9 @@ const AddHabitScreen = ({ navigation, route }) => {
               {SIP_CATEGORIES.map((cat, i) => {
                 const selected = form.category === cat.key;
                 return (
-                  <TouchableOpacity
+                  <Pressable
                     key={cat.key}
-                    style={{
+                    style={({ pressed }) => ({
                       flex: 1,
                       paddingVertical: Spacing.lg,
                       alignItems: 'center',
@@ -272,9 +272,9 @@ const AddHabitScreen = ({ navigation, route }) => {
                       borderRightColor: colors.separator,
                       borderBottomWidth: selected ? 2 : 0,
                       borderBottomColor: cat.color,
-                    }}
+                      opacity: pressed ? 0.7 : 1,
+                    })}
                     onPress={() => { _set('category', cat.key); setErrors(p => ({ ...p, category: null })); }}
-                    activeOpacity={0.7}
                   >
                     <Text style={{ fontSize: 20 }}>{cat.icon}</Text>
                     <Text style={{
@@ -288,7 +288,7 @@ const AddHabitScreen = ({ navigation, route }) => {
                     <Text style={{ fontSize: 9, color: selected ? cat.color : colors.textDim, opacity: 0.8 }}>
                       {cat.desc}
                     </Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </View>
@@ -309,22 +309,23 @@ const AddHabitScreen = ({ navigation, route }) => {
                 { type: 'build', emoji: '🟢', label: 'Build', desc: 'Do this daily' },
                 { type: 'break', emoji: '🔴', label: 'Break', desc: 'Stop this habit' },
               ].map(t => (
-                <TouchableOpacity
+                <Pressable
                   key={t.type}
-                  style={[styles.typeCard, {
+                  style={({ pressed }) => [styles.typeCard, {
                     backgroundColor: form.type === t.type
                       ? (t.type === 'build' ? colors.goldAlpha15 : colors.redAlpha15)
                       : colors.backgroundElevated,
                     borderColor: form.type === t.type
                       ? (t.type === 'build' ? colors.goldAlpha40 : colors.redAlpha25)
                       : colors.separator,
+                    opacity: pressed ? 0.7 : 1,
                   }]}
                   onPress={() => _set('type', t.type)}
                 >
                   <Text style={{ fontSize: 28 }}>{t.emoji}</Text>
                   <Text style={{ ...Typography.headline, color: form.type === t.type ? (t.type === 'build' ? colors.gold : colors.red) : colors.textMuted }}>{t.label}</Text>
                   <Text style={{ ...Typography.caption2, color: colors.textDim }}>{t.desc}</Text>
-                </TouchableOpacity>
+                </Pressable>
               ))}
             </View>
           </Animated.View>
@@ -395,16 +396,17 @@ const AddHabitScreen = ({ navigation, route }) => {
                 </View>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
                   {COMMON_UNITS.map(u => (
-                    <TouchableOpacity
+                    <Pressable
                       key={u}
-                      style={[styles.unitPill, {
+                      style={({ pressed }) => [styles.unitPill, {
                         backgroundColor: form.unit === u ? colors.goldAlpha15 : colors.backgroundElevated,
                         borderColor:     form.unit === u ? colors.goldAlpha40 : colors.separator,
+                        opacity: pressed ? 0.7 : 1,
                       }]}
                       onPress={() => _set('unit', u)}
                     >
                       <Text style={{ ...Typography.caption1, color: form.unit === u ? colors.gold : colors.textMuted }}>{u}</Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   ))}
                 </View>
               </View>
@@ -420,7 +422,7 @@ const AddHabitScreen = ({ navigation, route }) => {
             ].map((f, i) => (
               <View key={f.key}>
                 {i > 0 && <View style={[styles.separator, { backgroundColor: colors.separator }]} />}
-                <TouchableOpacity style={styles.row} onPress={() => _set('frequency_type', f.key)}>
+                <Pressable style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]} onPress={() => _set('frequency_type', f.key)}>
                   <View>
                     <Text style={{ ...Typography.callout, color: colors.textPrimary }}>{f.label}</Text>
                     <Text style={{ ...Typography.caption1, color: colors.textDim, marginTop: 3 }}>{f.desc}</Text>
@@ -428,7 +430,7 @@ const AddHabitScreen = ({ navigation, route }) => {
                   {form.frequency_type === f.key && (
                     <Text style={{ ...Typography.callout, fontWeight: '700', color: accent }}>✓</Text>
                   )}
-                </TouchableOpacity>
+                </Pressable>
               </View>
             ))}
             {form.frequency_type === 'weekly' && (
@@ -436,16 +438,17 @@ const AddHabitScreen = ({ navigation, route }) => {
                 <Text style={{ ...Typography.caption2, color: colors.textDim }}>TIMES PER WEEK TARGET</Text>
                 <View style={{ flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap' }}>
                   {[2,3,4,5,6].map(n => (
-                    <TouchableOpacity
+                    <Pressable
                       key={n}
-                      style={[styles.numPill, {
+                      style={({ pressed }) => [styles.numPill, {
                         backgroundColor: form.weekly_target === String(n) ? colors.goldAlpha15 : colors.backgroundElevated,
                         borderColor:     form.weekly_target === String(n) ? colors.goldAlpha40 : colors.separator,
+                        opacity: pressed ? 0.7 : 1,
                       }]}
                       onPress={() => _set('weekly_target', String(n))}
                     >
                       <Text style={{ ...Typography.callout, fontWeight: '700', color: form.weekly_target === String(n) ? colors.gold : colors.textMuted }}>{n}×</Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   ))}
                 </View>
               </View>
@@ -458,7 +461,7 @@ const AddHabitScreen = ({ navigation, route }) => {
             {TIME_OF_DAY_OPTIONS.map((t, i) => (
               <View key={t.key}>
                 {i > 0 && <View style={[styles.separator, { backgroundColor: colors.separator }]} />}
-                <TouchableOpacity style={styles.row} onPress={() => _set('time_of_day', t.key)}>
+                <Pressable style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]} onPress={() => _set('time_of_day', t.key)}>
                   <View>
                     <Text style={{ ...Typography.callout, color: colors.textPrimary }}>{t.label}</Text>
                     <Text style={{ ...Typography.caption1, color: colors.textDim, marginTop: 3 }}>{t.desc}</Text>
@@ -466,7 +469,7 @@ const AddHabitScreen = ({ navigation, route }) => {
                   {form.time_of_day === t.key && (
                     <Text style={{ ...Typography.callout, fontWeight: '700', color: accent }}>✓</Text>
                   )}
-                </TouchableOpacity>
+                </Pressable>
               </View>
             ))}
           </View>
@@ -479,20 +482,21 @@ const AddHabitScreen = ({ navigation, route }) => {
                 const label = mins >= 60 ? `${mins / 60}h` : `${mins}m`;
                 const sel   = form.duration === mins;
                 return (
-                  <TouchableOpacity
+                  <Pressable
                     key={mins}
-                    style={{
+                    style={({ pressed }) => ({
                       paddingHorizontal: 14, paddingVertical: 8,
                       borderRadius: Radius.md, borderWidth: 1,
                       backgroundColor: sel ? colors.goldAlpha15 : colors.backgroundElevated,
                       borderColor:     sel ? colors.goldAlpha40  : colors.separator,
-                    }}
+                      opacity: pressed ? 0.7 : 1,
+                    })}
                     onPress={() => _set('duration', mins)}
                   >
                     <Text style={{ ...Typography.callout, fontWeight: '700', color: sel ? colors.gold : colors.textMuted }}>
                       {label}
                     </Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </View>
@@ -517,21 +521,21 @@ const AddHabitScreen = ({ navigation, route }) => {
               </View>
             </View>
             <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-            <TouchableOpacity style={styles.row} onPress={() => setIconModal(true)}>
+            <Pressable style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]} onPress={() => setIconModal(true)}>
               <Text style={{ ...Typography.callout, color: colors.textPrimary }}>Icon</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
                 <Text style={{ fontSize: 22 }}>{form.icon}</Text>
                 <Text style={{ ...Typography.title3, color: colors.textDim, fontWeight: '300' }}>›</Text>
               </View>
-            </TouchableOpacity>
+            </Pressable>
             <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-            <TouchableOpacity style={styles.row} onPress={() => setColorModal(true)}>
+            <Pressable style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]} onPress={() => setColorModal(true)}>
               <Text style={{ ...Typography.callout, color: colors.textPrimary }}>Color</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
                 <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: form.color }} />
                 <Text style={{ ...Typography.title3, color: colors.textDim, fontWeight: '300' }}>›</Text>
               </View>
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           {/* ── Reminder ── */}
@@ -544,10 +548,10 @@ const AddHabitScreen = ({ navigation, route }) => {
             ].map((r, i) => (
               <View key={r.key}>
                 {i > 0 && <View style={[styles.separator, { backgroundColor: colors.separator }]} />}
-                <TouchableOpacity style={styles.row} onPress={() => _set('reminder_type', r.key)}>
+                <Pressable style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]} onPress={() => _set('reminder_type', r.key)}>
                   <Text style={{ ...Typography.callout, color: colors.textPrimary }}>{r.label}</Text>
                   {form.reminder_type === r.key && <Text style={{ ...Typography.callout, fontWeight: '700', color: accent }}>✓</Text>}
-                </TouchableOpacity>
+                </Pressable>
               </View>
             ))}
           </View>
@@ -577,13 +581,13 @@ const AddHabitScreen = ({ navigation, route }) => {
                 ].map((p, i) => (
                   <View key={p.key}>
                     {i > 0 && <View style={[styles.separator, { backgroundColor: colors.separator }]} />}
-                    <TouchableOpacity style={styles.row} onPress={() => _set('punishment_sensitivity', p.key)}>
+                    <Pressable style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]} onPress={() => _set('punishment_sensitivity', p.key)}>
                       <View>
                         <Text style={{ ...Typography.callout, color: colors.textPrimary }}>{p.label}</Text>
                         <Text style={{ ...Typography.caption1, color: colors.textDim, marginTop: 3 }}>{p.desc}</Text>
                       </View>
                       {form.punishment_sensitivity === p.key && <Text style={{ ...Typography.callout, fontWeight: '700', color: colors.red }}>✓</Text>}
-                    </TouchableOpacity>
+                    </Pressable>
                   </View>
                 ))}
               </View>
@@ -591,20 +595,19 @@ const AddHabitScreen = ({ navigation, route }) => {
           )}
 
           {/* ── Save ── */}
-          <TouchableOpacity
-            style={[styles.saveBtn, {
+          <Pressable
+            style={({ pressed }) => [styles.saveBtn, {
               backgroundColor: accent,
               marginHorizontal: Spacing.xl,
-              opacity: saving ? 0.7 : 1,
+              opacity: saving ? 0.7 : pressed ? 0.85 : 1,
             }]}
             onPress={_save}
             disabled={saving}
-            activeOpacity={0.85}
           >
             <Text style={{ ...Typography.headline, color: form.type === 'build' ? '#000' : '#fff' }}>
               {saving ? 'Saving...' : isEdit ? 'Save Changes' : `Create ${form.type === 'build' ? 'Build' : 'Break'} Habit`}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
 
           <View style={{ height: 40 }} />
         </ScrollView>
