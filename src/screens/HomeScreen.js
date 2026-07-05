@@ -32,7 +32,9 @@ import { sendDailyWhatsApp, shouldShowDailyPrompt } from '../services/whatsappSe
 import { getTodayMood, shouldShowWeeklyReflection } from '../database/moodService';
 import { isWFOMode, applyWFOSkipsForToday, getActiveRecovery, offerStreakRecovery, progressRecovery } from '../services/wfoService';
 import { generateInsights } from '../services/insightsService';
+import { scheduleDangerZoneAlert } from '../services/notificationService';
 import { setSetting } from '../database/habitService';
+import DailyIntentScreen from './DailyIntentScreen';
 
 // ── SIP Category Definitions ──────────────────────────────────────────
 const CATEGORY_CONFIG = {
@@ -106,6 +108,9 @@ const HomeScreen = ({ navigation }) => {
   const [showWA,         setShowWA]         = useState(false);
   const [showMoodPrompt, setShowMoodPrompt] = useState(false);
   const [showReflection, setShowReflection] = useState(false);
+  const [showDailyIntent,setShowDailyIntent]= useState(false);
+  const [coldShower,     setColdShower]     = useState(false);
+  const [hardThing,      setHardThing]      = useState(false);
   const [wfoMode,        setWfoMode]        = useState(false);
   const [wfoCity,        setWfoCity]        = useState('Bangalore');
 
@@ -178,6 +183,30 @@ const HomeScreen = ({ navigation }) => {
       const needsReflection = await shouldShowWeeklyReflection();
       setShowReflection(needsReflection);
 
+      // Load physical discipline state for today
+      const discDate = await getSetting('discipline_date');
+      const today2   = DateUtils.today();
+      if (discDate === today2) {
+        const cs = await getSetting('cold_shower_done');
+        const ht = await getSetting('hard_thing_done');
+        setColdShower(cs === 'true');
+        setHardThing(ht === 'true');
+      } else {
+        setColdShower(false);
+        setHardThing(false);
+      }
+
+      // Show daily intent screen once per day (morning only, first load)
+      if (!isRefresh) {
+        const today = DateUtils.today();
+        const lastIntent = await getSetting('last_intent_date');
+        const currentHour = new Date().getHours();
+        if (lastIntent !== today && currentHour >= 4 && currentHour < 14) {
+          setShowDailyIntent(true);
+          await setSetting('last_intent_date', today);
+        }
+      }
+
       Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
 
       try { await checkAndAwardStreakFreeze(); } catch {}
@@ -194,6 +223,11 @@ const HomeScreen = ({ navigation }) => {
     try {
       const s   = await getStreak(habitId);
       const hit = await checkMilestone(habitId, s.current);
+      // Danger zone alert for break habits at streak day 2 or 3
+      const habit = habits.find(h => h.id === habitId);
+      if (habit?.type === 'break' && (s.current === 2 || s.current === 3)) {
+        scheduleDangerZoneAlert(s.current, habit.name).catch(() => {});
+      }
       if (hit) {
         const { getShloka, getMilestoneContext } = require('../constants/shlokas');
         const ms = getShloka(getMilestoneContext(hit.days));
@@ -471,6 +505,14 @@ const HomeScreen = ({ navigation }) => {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <StatusBar barStyle="light-content" />
 
+      {/* Daily Intent Screen — overlays everything, shown once per morning */}
+      {showDailyIntent && (
+        <DailyIntentScreen
+          alterEgo={alterEgo}
+          onDismiss={() => setShowDailyIntent(false)}
+        />
+      )}
+
       <Animated.ScrollView
         style={{ opacity: fadeAnim }}
         contentContainerStyle={{ paddingBottom: 20 }}
@@ -507,6 +549,65 @@ const HomeScreen = ({ navigation }) => {
             </View>
           )}
         </View>
+
+        {/* ── SOS + Read row ── */}
+        {!reorderMode && (
+          <View style={{ flexDirection: 'row', gap: Spacing.md, marginHorizontal: Spacing.xl, marginBottom: Spacing.md }}>
+            <TouchableOpacity
+              style={{ flex: 1.6, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#FF453A18', borderRadius: Radius.lg, borderWidth: 1, borderColor: '#FF453A40', paddingVertical: 14 }}
+              onPress={() => navigation.navigate('SOS')}
+              activeOpacity={0.8}
+            >
+              <Text style={{ fontSize: 18 }}>🆘</Text>
+              <View>
+                <Text style={{ ...Typography.subheadline, color: '#FF453A', fontWeight: '700' }}>SOS</Text>
+                <Text style={{ ...Typography.caption2, color: '#FF453A80' }}>urge is loud</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.backgroundCard, borderRadius: Radius.lg, borderWidth: 1, borderColor: colors.separator, paddingVertical: 14 }}
+              onPress={() => navigation.navigate('Motivation')}
+              activeOpacity={0.8}
+            >
+              <Text style={{ fontSize: 18 }}>📖</Text>
+              <View>
+                <Text style={{ ...Typography.subheadline, color: colors.textPrimary, fontWeight: '600' }}>Read</Text>
+                <Text style={{ ...Typography.caption2, color: colors.textDim }}>letters</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── Physical Discipline ── */}
+        {!reorderMode && (
+          <View style={{ flexDirection: 'row', gap: Spacing.md, marginHorizontal: Spacing.xl, marginBottom: Spacing.md }}>
+            {[
+              { key: 'cold',  label: 'Cold Shower', emoji: '🧊', done: coldShower,
+                onPress: async () => { const v = !coldShower; setColdShower(v); await setSetting('cold_shower_done', String(v)); await setSetting('discipline_date', DateUtils.today()); }
+              },
+              { key: 'hard',  label: 'Hard Thing',  emoji: '⚔️', done: hardThing,
+                onPress: async () => { const v = !hardThing;  setHardThing(v);  await setSetting('hard_thing_done',  String(v)); await setSetting('discipline_date', DateUtils.today()); }
+              },
+            ].map(item => (
+              <TouchableOpacity
+                key={item.key}
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  backgroundColor: item.done ? colors.greenAlpha15 : colors.backgroundCard,
+                  borderRadius: Radius.lg, borderWidth: 1,
+                  borderColor: item.done ? colors.green + '50' : colors.separator,
+                  paddingVertical: 12,
+                }}
+                onPress={item.onPress}
+                activeOpacity={0.75}
+              >
+                <Text style={{ fontSize: 16 }}>{item.done ? '✓' : item.emoji}</Text>
+                <Text style={{ ...Typography.caption1, color: item.done ? colors.green : colors.textMuted, fontWeight: item.done ? '700' : '400' }}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* ── Reorder banner ── */}
         {reorderMode && (
@@ -613,7 +714,7 @@ const HomeScreen = ({ navigation }) => {
             <View style={{ gap: 5 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ ...Typography.caption1, color: colors.gold, fontWeight: '600' }}>
-                  ⚡ {gamStats.totalXP} XP · {gamStats.levelInfo?.icon} {gamStats.levelInfo?.title}
+                  ⚡ XP — {gamStats.totalXP} · {gamStats.levelInfo?.icon} {gamStats.levelInfo?.title}
                 </Text>
                 {gamStats.levelInfo?.nextLevel && (
                   <Text style={{ ...Typography.caption2, color: colors.textDim }}>
@@ -635,7 +736,7 @@ const HomeScreen = ({ navigation }) => {
             <View style={{ gap: 5 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ ...Typography.caption1, color: kt?.color || colors.blue, fontWeight: '600' }}>
-                  ☸ {gamStats.karmaScore} · {kt?.icon} {kt?.title}
+                  ☸ Karma — {gamStats.karmaScore} · {kt?.icon} {kt?.title}
                 </Text>
                 {kt?.nextTitle && (
                   <Text style={{ ...Typography.caption2, color: colors.textDim }}>

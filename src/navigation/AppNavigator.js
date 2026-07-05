@@ -24,6 +24,10 @@ import BeforeNowScreen           from '../screens/BeforeNowScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';  // Phase F-4
 import KnowKarmaScreen            from '../screens/KnowKarmaScreen';
 import ScheduleScreen             from '../screens/ScheduleScreen';
+import SOSScreen                  from '../screens/SOSScreen';
+import MotivationScreen           from '../screens/MotivationScreen';
+import ClarityJournalScreen       from '../screens/ClarityJournalScreen';
+import DailyIntentScreen          from '../screens/DailyIntentScreen';
 
 const Tab   = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -120,6 +124,11 @@ const AppNavigator = () => (
 
     {/* Plugins */}
     <Stack.Screen name="Schedule" component={ScheduleScreen} />
+
+    {/* Phase G — Intervention & Motivation */}
+    <Stack.Screen name="SOS"            component={SOSScreen}            options={{ presentation: 'modal', gestureEnabled: false }} />
+    <Stack.Screen name="Motivation"     component={MotivationScreen}     options={{ presentation: 'modal', gestureEnabled: true }} />
+    <Stack.Screen name="ClarityJournal" component={ClarityJournalScreen} options={{ presentation: 'modal', gestureEnabled: true }} />
   </Stack.Navigator>
 );
 

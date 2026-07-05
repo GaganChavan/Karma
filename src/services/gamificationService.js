@@ -35,7 +35,7 @@ export const XP_VALUES = {
   habit_undo_resist:-2,
   skipped:           0,
   auto_skipped:     -2,
-  missed:           -2,
+  missed:           -1,
   slip:             -5,
   wfo_skipped:       0,
   perfect_day:       5,

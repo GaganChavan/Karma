@@ -189,6 +189,53 @@ export const cancelConfigurableNotifications = async () => {
   }
 };
 
+// ── Danger Zone Alert (Day 3-4 streak warning) ───────────────────────
+// Call this after every break-habit check-in.
+// If streak just hit 2 or 3, schedules a one-time 8 AM alert for tomorrow.
+export const scheduleDangerZoneAlert = async (streakDay, habitName) => {
+  try {
+    const masterEnabled = await getSetting('notification_master');
+    if (masterEnabled === 'false') return;
+
+    const permitted = await requestNotificationPermission();
+    if (!permitted) return;
+
+    const alterEgo = (await getSetting('alter_ego')) || 'Gagan';
+
+    // Cancel any previous danger zone notification
+    try {
+      await Notifications.cancelScheduledNotificationAsync('karma_danger_zone');
+    } catch {}
+
+    if (streakDay !== 2 && streakDay !== 3) return;
+
+    const messages = {
+      2: `${alterEgo}, day 3 begins today — this is where you have broken before. The urge will be loudest. Stay present. Open Karma if it gets hard.`,
+      3: `${alterEgo}, day 4. You are past the hardest point. One more day and the wall begins to fall. Hold the line today.`,
+    };
+
+    // Schedule for 8 AM tomorrow
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(8, 0, 0, 0);
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: 'karma_danger_zone',
+      content: {
+        title: '⚔️ Danger Zone',
+        body:  messages[streakDay],
+        data:  { type: 'danger_zone', streak: streakDay },
+        sound: true,
+      },
+      trigger: { date: tomorrow },
+    });
+
+    console.log(`✅ Danger zone alert scheduled for day ${streakDay + 1}`);
+  } catch (error) {
+    console.error('scheduleDangerZoneAlert error:', error);
+  }
+};
+
 // ── Schedule All Notifications (habit + configurable) ─────────────────
 // Called on app startup in App.js after splash
 export const scheduleAllHabitNotifications = async () => {
