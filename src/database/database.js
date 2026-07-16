@@ -154,12 +154,25 @@ const _initializeTables = async (db) => {
       FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS todos (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      date         TEXT NOT NULL,
+      hour         INTEGER NOT NULL CHECK(hour BETWEEN 0 AND 23),
+      title        TEXT NOT NULL CHECK(length(trim(title)) > 0),
+      is_done      INTEGER NOT NULL DEFAULT 0 CHECK(is_done IN (0,1)),
+      sort_order   INTEGER NOT NULL DEFAULT 0,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_checkins_habit_date ON checkins(habit_id, date);
     CREATE INDEX IF NOT EXISTS idx_checkins_date       ON checkins(date);
     CREATE INDEX IF NOT EXISTS idx_slip_triggers_habit ON slip_triggers(habit_id);
     CREATE INDEX IF NOT EXISTS idx_mood_logs_date      ON mood_logs(date);
     CREATE INDEX IF NOT EXISTS idx_checkins_status     ON checkins(status);
     CREATE INDEX IF NOT EXISTS idx_miss_logs_habit     ON miss_logs(habit_id);
+    CREATE INDEX IF NOT EXISTS idx_todos_date          ON todos(date);
+    CREATE INDEX IF NOT EXISTS idx_todos_date_hour     ON todos(date, hour);
   `);
 };
 

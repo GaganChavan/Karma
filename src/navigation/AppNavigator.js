@@ -28,6 +28,7 @@ import SOSScreen                  from '../screens/SOSScreen';
 import MotivationScreen           from '../screens/MotivationScreen';
 import ClarityJournalScreen       from '../screens/ClarityJournalScreen';
 import DailyIntentScreen          from '../screens/DailyIntentScreen';
+import ToDoScreen                 from '../screens/ToDoScreen';
 
 const Tab   = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -38,6 +39,7 @@ const KarmaTabBar = ({ state, navigation }) => {
     { name: 'Home',     label: 'Home' },
     { name: 'Habits',   label: 'Habits' },
     { name: 'AddTab',   label: 'Add', isCenter: true },
+    { name: 'ToDo',     label: 'Planner' },
     { name: 'Stats',    label: 'Stats' },
     { name: 'Settings', label: 'More' },
   ];
@@ -91,6 +93,7 @@ const TabNavigator = () => (
     <Tab.Screen name="Home"     component={HomeScreen} />
     <Tab.Screen name="Habits"   component={HabitsScreen} />
     <Tab.Screen name="AddTab"   component={HomeScreen} />
+    <Tab.Screen name="ToDo"     component={ToDoScreen} />
     <Tab.Screen name="Stats"    component={StatsScreen} />
     <Tab.Screen name="Settings" component={SettingsScreen} />
   </Tab.Navigator>
