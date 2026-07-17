@@ -41,6 +41,26 @@ const VIEWS = [
   { key: 'monthly', label: '🗓️ Monthly' },
 ];
 
+// Planner launched July 2026 — there's no real history before this, so the
+// Monthly calendar shouldn't let you page back into months that can only
+// ever show empty grids.
+const LAUNCH_MONTH = { y: 2026, m: 6 };
+
+// "At or before" rather than exact-equality — if monthCursor is ever already
+// past the floor (e.g. a misconfigured device clock), this still catches it
+// instead of only engaging on an exact match.
+const _isAtOrBeforeLaunchMonth = (y, m) =>
+  y < LAUNCH_MONTH.y || (y === LAUNCH_MONTH.y && m <= LAUNCH_MONTH.m);
+
+const _shiftDate = (dateStr, deltaDays) => {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + deltaDays);
+  const y  = d.getFullYear();
+  const m  = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+};
+
 const ToDoScreen = () => {
   const { colors } = useTheme();
   const [view,        setView]        = useState('daily');
@@ -51,6 +71,7 @@ const ToDoScreen = () => {
     const d = new Date();
     return { y: d.getFullYear(), m: d.getMonth() };
   });
+  const [selectedDate, setSelectedDate] = useState(() => getTodayDate());
   const [addingHour, setAddingHour] = useState(null);
   const [inputText,  setInputText]  = useState('');
 
@@ -58,14 +79,15 @@ const ToDoScreen = () => {
   const inputRef         = useRef(null);
   const rowOffsets       = useRef({});
   const hasAutoScrolled  = useRef(false);
-  const hasNavigatedMonth = useRef(false); // true once the user taps ‹ / › — stops auto-resync below
+  const hasNavigatedMonth = useRef(false); // true once the user taps ‹ / › on Monthly — stops auto-resync below
+  const hasNavigatedDay   = useRef(false); // true once the user taps ‹ / › on Daily — stops auto-resync below
   const pendingToggles    = useRef(new Set()); // ids with an in-flight toggle — blocks a rapid re-tap race
+  const isSubmittingRef   = useRef(false); // blocks a rapid double-tap on the add-task ✓ button
 
-  const date        = getTodayDate();
-  const currentHour = new Date().getHours();
-  const weekDates   = DateUtils.getWeekDates(); // Mon-Sun, recomputed each render — cheap
-
-  useFocusEffect(useCallback(() => { _load(); }, []));
+  const todayStr      = getTodayDate();
+  const isViewingToday = selectedDate === todayStr;
+  const currentHour   = new Date().getHours();
+  const weekDates     = DateUtils.getWeekDates(); // Mon-Sun, recomputed each render — cheap
 
   // useCallback(..., []) freezes this exact _load reference for the life of
   // the screen — react-navigation's useFocusEffect only re-registers when the
@@ -76,7 +98,15 @@ const ToDoScreen = () => {
   // closure — otherwise the app would keep fetching yesterday's todos after
   // being left open across midnight, the same class of bug this codebase's
   // IST local-date fixes elsewhere already exist to prevent.
-  const _load = async () => {
+  //
+  // Keeping deps=[] (rather than depending on selectedDate) is deliberate:
+  // _prevDay/_nextDay/_goToToday call _load(explicitDate) directly instead of
+  // relying on a focus-effect re-run, since a `[selectedDate]` dep here would
+  // make the resync branch's own `setSelectedDate` call retrigger a second,
+  // redundant fetch of the exact same day on every midnight resync.
+  useFocusEffect(useCallback(() => { _load(); }, []));
+
+  const _load = async (dateOverride) => {
     // Same staleness class as above: if the Monthly tab was left open across a
     // month boundary (e.g. mounted overnight on the 31st), monthCursor never
     // moves on its own since it only changes via _prevMonth/_nextMonth. Snap
@@ -89,11 +119,26 @@ const ToDoScreen = () => {
         ? prev
         : { y: now.getFullYear(), m: now.getMonth() });
     }
+    // Same idea for Daily: selectedDate defaults to "today" and only ever
+    // changes via _prevDay/_nextDay/_goToToday. Left open across midnight
+    // without the user touching it, resync to the real today on every focus —
+    // compute the resynced value locally so this same call fetches the right
+    // day instead of the stale one and waiting for a second focus. This
+    // resync branch only runs when called with no explicit dateOverride (i.e.
+    // from the focus effect above, not from a direct day-nav tap).
+    const today = getTodayDate();
+    let effectiveDate = dateOverride;
+    if (effectiveDate == null) {
+      effectiveDate = selectedDate;
+      if (!hasNavigatedDay.current && effectiveDate !== today) {
+        effectiveDate = today;
+        setSelectedDate(today);
+      }
+    }
     try {
-      const today       = getTodayDate();
       const currentWeek = DateUtils.getWeekDates();
       const [dayData, weekRows] = await Promise.all([
-        getTodosForDate(today),
+        getTodosForDate(effectiveDate),
         getCountsForDateRange(currentWeek[0].dateStr, currentWeek[6].dateStr),
       ]);
       setTodos(dayData);
@@ -103,7 +148,7 @@ const ToDoScreen = () => {
     } catch (err) {
       Alert.alert('Error', err.message);
     } finally {
-      if (!hasAutoScrolled.current) {
+      if (effectiveDate === today && !hasAutoScrolled.current) {
         hasAutoScrolled.current = true;
         setTimeout(() => {
           const y = rowOffsets.current[new Date().getHours()];
@@ -136,6 +181,7 @@ const ToDoScreen = () => {
   }, [monthCursor.y, monthCursor.m]);
 
   const _prevMonth = () => {
+    if (_isAtOrBeforeLaunchMonth(monthCursor.y, monthCursor.m)) return;
     hasNavigatedMonth.current = true;
     setMonthCursor(c => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }));
   };
@@ -144,10 +190,41 @@ const ToDoScreen = () => {
     setMonthCursor(c => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }));
   };
 
-  // Every mutation only ever touches today's date, and today always belongs
-  // to both "this week" and "this month" — so the same delta keeps both
-  // rollup views live without a refetch (monthCounts otherwise only reloads
-  // when monthCursor itself changes, i.e. prev/next month navigation).
+  // Switching days abandons any open "+ Add task" row — otherwise its text
+  // would silently get saved under whichever day you land on next instead of
+  // the one you were typing it for. hasNavigatedDay is set based on whether
+  // the destination IS today, not unconditionally true — otherwise even
+  // "Jump to today" would permanently disable _load's midnight resync above,
+  // since nothing ever set it back to false.
+  const _prevDay = () => {
+    const next = _shiftDate(selectedDate, -1);
+    hasNavigatedDay.current = next !== getTodayDate();
+    setAddingHour(null);
+    setSelectedDate(next);
+    _load(next);
+  };
+  const _nextDay = () => {
+    const next = _shiftDate(selectedDate, 1);
+    hasNavigatedDay.current = next !== getTodayDate();
+    setAddingHour(null);
+    setSelectedDate(next);
+    _load(next);
+  };
+  const _goToToday = () => {
+    const next = getTodayDate();
+    hasNavigatedDay.current = false;
+    setAddingHour(null);
+    setSelectedDate(next);
+    _load(next);
+  };
+
+  // Mutations can now target any date via day-nav, not just today — dateStr
+  // is whatever date the todo actually belongs to. Bumping weekCounts/
+  // monthCounts by dateStr keeps both rollup views live without a refetch
+  // whenever dateStr falls inside the currently displayed week/month (which
+  // is the common case — today's own week/month); a dateStr outside those
+  // ranges just sits as an unread key until the next real refetch replaces
+  // the whole map (monthCounts reloads when monthCursor itself changes).
   const _applyDelta = (dateStr, plannedDelta, doneDelta) => {
     const bump = (prev) => {
       const row = prev[dateStr] || { date: dateStr, planned: 0, done: 0 };
@@ -165,14 +242,21 @@ const ToDoScreen = () => {
   const _submitAdd = async (hour) => {
     const title = inputText.trim();
     if (!title) { setAddingHour(null); return; }
+    // Same rapid-double-tap race as _toggle below — the ✓ button and the
+    // keyboard's return key both call this, and a fast double-tap can fire
+    // both before the first addTodo() await resolves and clears inputText.
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     try {
-      const id = await addTodo(date, hour, title);
-      setTodos(prev => [...prev, { id, date, hour, title, is_done: 0, sort_order: prev.length }]);
-      _applyDelta(date, 1, 0);
+      const id = await addTodo(selectedDate, hour, title);
+      setTodos(prev => [...prev, { id, date: selectedDate, hour, title, is_done: 0, sort_order: prev.length }]);
+      _applyDelta(selectedDate, 1, 0);
       setInputText('');
       inputRef.current?.focus(); // keep the row open for rapid multi-add
     } catch (err) {
       Alert.alert('Error', err.message);
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 
@@ -255,7 +339,7 @@ const ToDoScreen = () => {
       return {
         dateStr: ds, day: Number(ds.slice(-2)),
         planned: mPlanned, done: mDone,
-        level: _levelOf(mPlanned, mDone), isToday: ds === date,
+        level: _levelOf(mPlanned, mDone), isToday: ds === todayStr,
       };
     })
   );
@@ -269,10 +353,15 @@ const ToDoScreen = () => {
   const monthLabel = new Date(monthYear, monthIdx, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
   const now = new Date();
   const isCurrentMonth = monthYear === now.getFullYear() && monthIdx === now.getMonth();
+  const isLaunchMonth  = _isAtOrBeforeLaunchMonth(monthYear, monthIdx);
 
-  const dateLabel = new Date().toLocaleDateString('en-IN', {
+  const dateLabel = new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', {
     weekday: 'long', day: 'numeric', month: 'long',
   });
+  const relativeDayLabel = isViewingToday ? 'Today'
+    : selectedDate === _shiftDate(todayStr, 1)  ? 'Tomorrow'
+    : selectedDate === _shiftDate(todayStr, -1) ? 'Yesterday'
+    : dateLabel;
 
   const _levelColors = (level) => {
     if (level === 'all')     return { bg: colors.goldAlpha25, border: colors.gold,       text: colors.gold };
@@ -302,7 +391,7 @@ const ToDoScreen = () => {
 
   let headerSubtitle, headerChip;
   if (view === 'daily') {
-    headerSubtitle = dateLabel.toUpperCase();
+    headerSubtitle = relativeDayLabel.toUpperCase();
     headerChip     = planned === 0 ? 'Nothing planned yet' : `${done}/${planned} done`;
   } else if (view === 'weekly') {
     headerSubtitle = 'THIS WEEK';
@@ -370,6 +459,29 @@ const ToDoScreen = () => {
       {/* ── Daily ── */}
       {view === 'daily' && (
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          {/* Day nav — plan ahead or look back a day at a time */}
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            paddingHorizontal: Spacing.xl, paddingVertical: Spacing.sm,
+            borderBottomWidth: 1, borderBottomColor: colors.separator,
+          }}>
+            <TouchableOpacity onPress={_prevDay} hitSlop={8} style={{ padding: Spacing.sm }}>
+              <Text style={{ ...Typography.title3, color: colors.gold, lineHeight: 24 }}>‹</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={_goToToday} disabled={isViewingToday} style={{ alignItems: 'center' }}>
+              <Text style={{ ...Typography.callout, color: colors.textPrimary, fontWeight: '700' }}>
+                {relativeDayLabel}
+              </Text>
+              {!isViewingToday && (
+                <Text style={{ ...Typography.caption2, color: colors.gold, marginTop: 2 }}>
+                  Jump to today
+                </Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={_nextDay} hitSlop={8} style={{ padding: Spacing.sm }}>
+              <Text style={{ ...Typography.title3, color: colors.gold, lineHeight: 24 }}>›</Text>
+            </TouchableOpacity>
+          </View>
           <ScrollView
             ref={scrollRef}
             showsVerticalScrollIndicator={false}
@@ -378,7 +490,7 @@ const ToDoScreen = () => {
           >
             {HOURS.map((h) => {
               const tasks     = todos.filter(t => t.hour === h);
-              const isCurrent = h === currentHour;
+              const isCurrent = isViewingToday && h === currentHour;
               const isAdding  = addingHour === h;
 
               return (
@@ -445,22 +557,37 @@ const ToDoScreen = () => {
                     ))}
 
                     {isAdding ? (
-                      <TextInput
-                        ref={inputRef}
-                        autoFocus
-                        value={inputText}
-                        onChangeText={setInputText}
-                        onSubmitEditing={() => _submitAdd(h)}
-                        onBlur={() => { if (!inputText.trim()) setAddingHour(null); }}
-                        returnKeyType="done"
-                        placeholder="Add a task…"
-                        placeholderTextColor={colors.textDim}
-                        style={{
-                          ...Typography.callout, color: colors.textPrimary,
-                          borderRadius: Radius.md, borderWidth: 1, borderColor: colors.goldAlpha40,
-                          paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
-                        }}
-                      />
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                        <TextInput
+                          ref={inputRef}
+                          autoFocus
+                          value={inputText}
+                          onChangeText={setInputText}
+                          onSubmitEditing={() => _submitAdd(h)}
+                          onBlur={() => { if (!inputText.trim()) setAddingHour(null); }}
+                          returnKeyType="done"
+                          placeholder="Add a task…"
+                          placeholderTextColor={colors.textDim}
+                          style={{
+                            flex: 1,
+                            ...Typography.callout, color: colors.textPrimary,
+                            borderRadius: Radius.md, borderWidth: 1, borderColor: colors.goldAlpha40,
+                            paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+                          }}
+                        />
+                        <TouchableOpacity
+                          onPress={() => _submitAdd(h)}
+                          hitSlop={8}
+                          style={{
+                            width: 32, height: 32, borderRadius: Radius.md,
+                            backgroundColor: colors.goldAlpha15,
+                            borderWidth: 1, borderColor: colors.gold,
+                            alignItems: 'center', justifyContent: 'center',
+                          }}
+                        >
+                          <Text style={{ color: colors.gold, fontSize: 16, fontWeight: '700' }}>✓</Text>
+                        </TouchableOpacity>
+                      </View>
                     ) : (
                       <TouchableOpacity onPress={() => _startAdd(h)} style={{ paddingVertical: 4 }}>
                         <Text style={{ ...Typography.caption1, color: colors.textDim }}>
@@ -523,7 +650,12 @@ const ToDoScreen = () => {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: Spacing.xl }}>
           {/* Month nav */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.lg }}>
-            <TouchableOpacity onPress={_prevMonth} hitSlop={8} style={{ padding: Spacing.sm }}>
+            <TouchableOpacity
+              onPress={_prevMonth}
+              disabled={isLaunchMonth}
+              hitSlop={8}
+              style={{ padding: Spacing.sm, opacity: isLaunchMonth ? 0.3 : 1 }}
+            >
               <Text style={{ ...Typography.title3, color: colors.gold, lineHeight: 24 }}>‹</Text>
             </TouchableOpacity>
             <Text style={{ ...Typography.headline, color: colors.textPrimary, fontWeight: '700' }}>

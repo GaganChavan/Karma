@@ -74,10 +74,13 @@ const KarmaTabBar = ({ state, navigation }) => {
             activeOpacity={0.7}
           >
             <View style={[styles.tabInner, isFocused && { backgroundColor: colors.goldAlpha15 }]}>
-              <Text style={[styles.tabLabel, {
-                color:      isFocused ? colors.gold : colors.textDim,
-                fontWeight: isFocused ? '700' : '500',
-              }]}>
+              <Text
+                numberOfLines={1}
+                style={[styles.tabLabel, {
+                  color:      isFocused ? colors.gold : colors.textDim,
+                  fontWeight: isFocused ? '700' : '500',
+                }]}
+              >
                 {tab.label}
               </Text>
             </View>
@@ -136,9 +139,9 @@ const AppNavigator = () => (
 );
 
 const styles = StyleSheet.create({
-  tabBar:     { flexDirection: 'row', borderTopWidth: 1, paddingBottom: Platform.OS === 'ios' ? 24 : 10, paddingTop: 12, paddingHorizontal: 8, alignItems: 'center' },
+  tabBar:     { flexDirection: 'row', borderTopWidth: 1, paddingBottom: Platform.OS === 'ios' ? 24 : 10, paddingTop: 12, paddingHorizontal: 4, alignItems: 'center' },
   tab:        { flex: 1, alignItems: 'center' },
-  tabInner:   { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  tabInner:   { paddingHorizontal: 6, paddingVertical: 6, borderRadius: 20 },
   tabLabel:   { ...Typography.caption1 },
   centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: -18 },
   centerBtn:  { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 },

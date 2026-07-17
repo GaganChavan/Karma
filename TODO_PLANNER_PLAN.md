@@ -84,6 +84,81 @@ up separately.
 
 Bundle re-verified clean on both iOS and Android after the fixes.
 
+## Post-install fixes (2026-07-17)
+
+First real on-device pass surfaced 4 issues, all fixed:
+
+1. **"Planner" tab label wrapped to two lines** (`AppNavigator.js`) — 6 tabs left too little
+   width per label at the existing padding/font size, and "Planner" was the longest label
+   added. Fixed by shrinking `tabBar`/`tabInner` horizontal padding and adding
+   `numberOfLines={1}` on the tab label as a hard guard against wrap.
+2. **No way to save a typed task** (`ToDoScreen.js`) — the add-task row only had
+   `onSubmitEditing` (the keyboard's return key), no visible button, unlike every other
+   inline-edit row in this app (`SettingsScreen.js`), which always pairs the `TextInput`
+   with an explicit Save affordance — Android keyboards don't reliably surface/fire a
+   "done" action here. Added a ✓ button next to the input that calls the same submit
+   handler.
+3. **No way to plan a future day** — Daily view was hard-locked to literal "today," with
+   no date navigation, so there was no way to plan tomorrow's hours this evening. Added a
+   `selectedDate` state with ‹ / › day navigation (mirrors the Monthly view's month nav)
+   plus a "Jump to today" affordance, a relative label (Today/Tomorrow/Yesterday/date),
+   and threaded `selectedDate` through load/add/current-hour-highlight/auto-scroll —
+   current-hour highlighting and the one-time auto-scroll now only apply when viewing
+   today. Also carries the same midnight-resync treatment already applied to `monthCursor`
+   (a `hasNavigatedDay` ref decides whether focus events snap `selectedDate` back to the
+   real today), including a stale-closure fix caught during this pass: the auto-scroll
+   check was comparing against the outer (frozen) `todayStr` instead of the fresh `today`
+   computed inside `_load` itself.
+4. **Monthly view could page back into months before the feature existed** — added a
+   `LAUNCH_MONTH` constant (July 2026) and disabled the ‹ button once the calendar reaches
+   it, mirroring the existing "can't page past current month" cap on the › button.
+
+### Review pass before merge (2026-07-17)
+
+Ran a full multi-angle review (8 finder agents + 1-vote verification) on the 4 fixes above
+before committing. 6 findings confirmed, 1 refuted, 3 more fixed:
+
+1. **`hasNavigatedDay` was set `true` by `_prevDay`/`_nextDay`/`_goToToday` but never reset
+   to `false`** — so after a single day-nav tap, even "Jump to today," the midnight
+   auto-resync was permanently disabled for the rest of the session; a task added the next
+   day could silently file under yesterday's date. Fixed: the ref is now set to
+   `next !== getTodayDate()` in `_prevDay`/`_nextDay`, and explicitly `false` in
+   `_goToToday`.
+2. **Depending `useFocusEffect` on `[selectedDate]` caused a genuine duplicate DB fetch**
+   (confirmed against react-navigation's actual `useFocusEffect` source) — the
+   midnight-resync branch's own `setSelectedDate` call changed the effect's identity,
+   retriggering a second, redundant `_load()` for the same focus event. Fixed by reverting
+   the effect to `deps=[]` (matching the original pre-existing pattern) and having
+   `_prevDay`/`_nextDay`/`_goToToday` call `_load(explicitDate)` directly instead of
+   relying on the effect to notice the state change.
+3. **The new ✓ Save button had no double-tap guard**, unlike `_toggle` in this same file
+   which already uses a `pendingToggles` ref for exactly this race. Fixed with an
+   `isSubmittingRef`, same pattern.
+4. **`LAUNCH_MONTH` guard used strict equality** instead of "at or before," so it only
+   engaged if `monthCursor` landed exactly on July 2026 — a misconfigured device clock
+   could skip it entirely. Fixed with `_isAtOrBeforeLaunchMonth()`.
+5. **`_applyDelta`'s comment was stale** ("every mutation only ever touches today's date")
+   now that day-nav lets mutations target any date — no visible bug (unread stray keys get
+   overwritten on the next real refetch), but the comment was rewritten to match reality.
+6. **Tab label can now truncate ("Plann…") instead of wrapping** on narrow/large-
+   accessibility-font devices, since `numberOfLines={1}` defaults to tail-ellipsis.
+   Reviewed and left as-is — judged a reasonable trade-off against the original "looks
+   broken" mid-word wrap, not worth the added complexity of dynamic font sizing.
+7. *(Refuted)* A candidate flagged the `useFocusEffect` explanatory comment as stale —
+   correct that one comment describes a hypothetical, but the comment directly above it
+   already clarifies the real current behavior, so there was no actual contradiction.
+
+Also noted but intentionally not addressed: Daily view has no launch-date floor (unlike
+Monthly), so a user can navigate arbitrarily far into the past and add backdated tasks —
+left alone since Daily's whole point is flexible day-by-day planning (including fixing a
+forgotten yesterday), and the user's original ask was specifically about Monthly's
+historical view, not Daily's edit range.
+
+Bundle re-verified clean on both iOS and Android after these fixes.
+
+Bundle re-verified clean on both iOS and Android after these fixes. Not yet re-run on a
+real device — see the checklist below, which still applies plus the new day-nav flow.
+
 ## On-device checklist (nothing below has been run on a real device/simulator yet)
 
 - [ ] App boots, no red-screen/DB errors in console, "Planner" tab appears and navigates
@@ -104,6 +179,14 @@ Bundle re-verified clean on both iOS and Android after the fixes.
       of closing — flag if that feels annoying rather than fast
 - [ ] Auto-scroll-to-current-hour on first opening the Daily tab (best-effort, may
       occasionally no-op — not a crash if it does)
+- [ ] "Planner" tab label renders on one line, no wrap
+- [ ] Daily: tap + Add task, type something, tap the new ✓ button — confirm it saves
+      without needing the keyboard's return key
+- [ ] Daily: tap › to go to Tomorrow, add a task there, confirm it saves under tomorrow
+      (not today) and current-hour highlight/auto-scroll don't apply on that day
+- [ ] Daily: tap ‹ a few times into the past, then "Jump to today" — confirm it returns to
+      today and the current-hour highlight reappears
+- [ ] Monthly: ‹ button should grey out and stop paging once you reach July 2026
 
 ---
 
